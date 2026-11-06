@@ -17,6 +17,17 @@ npm run build
 npm run preview
 ```
 
+## Ventana de acceso
+
+- Usuario: `admin`. Contraseña: `admin`.
+- Al abrir el enlace aparece una ventana de acceso antes de montar los módulos del proyecto. Las credenciales incorrectas mantienen esa ventana visible.
+- Al ingresar correctamente se recuerda el acceso con LocalStorage en el mismo navegador y dominio, sin almacenar la contraseña. Volver a abrir el enlace o recargar no requiere ingresarla nuevamente.
+- El menú del logo incluye **Cerrar sesión**, que elimina el acceso recordado. Borrar los datos del navegador, cambiar de navegador o usar otro dominio requiere volver a ingresar.
+- Si el navegador bloquea LocalStorage, el acceso funciona durante esa visita, pero no puede recordarse al volver a abrirlo.
+- No se utiliza una API de login, cookies de sesión, `SESSION_SECRET` ni Firebase Authentication. No necesitas configuración adicional de Vercel para esta ventana.
+
+Este mecanismo es un control visual del navegador y se puede alterar desde sus herramientas de desarrollo. No sustituye una autenticación de servidor ni protege el acceso directo a Firestore, cuyas reglas actuales siguen siendo públicas.
+
 ## Firebase configurado
 
 La inicialización está centralizada en `src/lib/firebase.js`. Inventario, tarjetas de Cajas y ventas utilizan esa misma conexión. Incluye la configuración web de `bdplan-b`; las variables `VITE_FIREBASE_*` pueden sustituirla. No es necesario crear `.env.local` para conectarse a este proyecto.

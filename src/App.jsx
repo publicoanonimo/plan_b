@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Banknote, Check, ChevronRight, LockKeyhole, CircleDollarSign, Download, LayoutDashboard, Package, Plus, QrCode, Trash2, Pencil, MoreVertical, Wine, X, CheckCircle2 } from 'lucide-react';
+import { Banknote, Check, ChevronRight, LockKeyhole, CircleDollarSign, Download, LayoutDashboard, Package, Plus, QrCode, Trash2, Pencil, MoreVertical, LogOut, Wine, X, CheckCircle2 } from 'lucide-react';
 import Modal from './components/Modal.jsx';
 import ModuleDrawer from './components/ModuleDrawer.jsx';
 import SaleTitle from './components/SaleTitle.jsx';
@@ -7,7 +7,7 @@ import { subscribe, saveProduct, saveOffer, removeItem, recordSale, closeRegiste
 import { isAvailable, money, saleName, toCents, totals, saleTime, sortedSales } from './lib/domain.js';
 const modules = {inicio: 'Inicio', cajas: 'Cajas', inventario: 'Inventario'};
 const icons = {inicio: LayoutDashboard, cajas: Banknote, inventario: Package};
-export default function App() {
+export default function App({onSignOut}) {
   const [page, setPage] = useState('inicio');
   const [data, setData] = useState({products: [], offers: [], sales: []});
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,7 @@ export default function App() {
       </section>}
     </>}
     </main></div>
-    {menuOpen && <ModuleDrawer onClose={() => setMenuOpen(false)}>{Object.entries(icons).map(([key, Icon]) => <button key={key} className={page === key ? 'nav-link active' : 'nav-link'} aria-current={page === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={21}/><span>{modules[key]}</span>{page === key && <Check size={17} className="nav-check"/>}</button>)}</ModuleDrawer>}
+    {menuOpen && <ModuleDrawer onClose={() => setMenuOpen(false)}>{Object.entries(icons).map(([key, Icon]) => <button key={key} className={page === key ? 'nav-link active' : 'nav-link'} aria-current={page === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={21}/><span>{modules[key]}</span>{page === key && <Check size={17} className="nav-check"/>}</button>)}<button className="nav-link sign-out" disabled={busy} onClick={() => run(onSignOut, 'Sesión cerrada')}><LogOut size={21}/><span>Cerrar sesión</span></button></ModuleDrawer>}
     {toast && <div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button className="icon-button" aria-label="Cerrar notificación" onClick={() => setToast('')}><X size={16}/></button></div>}
     {modal && <Modal busy={busy} onClose={() => setModal(null)} title={{product: modal.item ? 'Editar producto' : 'Registrar producto', offer: modal.item ? 'Editar tarjeta de venta' : 'Añadir producto a la venta', payment: 'Registrar una venta', mixed: 'Efectivo + QR', 'actions-product': modal.item?.name, 'actions-offer': modal.item?.productIds ? saleName(modal.item, data.products) : '', 'close-register': '¿Está seguro de cerrar cajas?', 'confirm-offer': '¿Guardar cambios?', 'delete-product': '¿Eliminar producto?', 'delete-offer': '¿Eliminar tarjeta de venta?'}[modal.type]} subtitle={modal.type === 'payment' || modal.type === 'mixed' ? `${saleName(modal.item, data.products)} · Bs ${money(modal.item.priceCents)}` : undefined}>
       {error && <div className="error-banner" role="alert">{error}</div>}

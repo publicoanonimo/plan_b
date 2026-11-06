@@ -278,3 +278,16 @@ input::placeholder { color: #9e94af; }
 .product-card .card-meta { min-height: 44px; padding-inline: 35px; }
 .card-options-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; margin-top: 28px; }
 .card-options-actions .button { min-height: 56px; font-size: 18px; }
+
+/* Login is displayed before the application or database modules are loaded. */
+.access-page { min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 28px 18px; background: radial-gradient(ellipse at 75% 5%,#643d862e,transparent 60%),#11131c; }
+.access-card { width: min(100%,430px); padding: 34px; background: linear-gradient(145deg,#353045,#242837); border: 1px solid #7e6b9d; border-radius: 23px; box-shadow: 0 20px 70px #0005; text-align: center; }
+.access-logo { width: 94px; height: 94px; border: 2px solid #f4d38e; padding: 3px; object-fit: cover; border-radius: 50%; background: #070b0c; box-shadow: 0 0 24px #f0c87526; }
+.access-card h1 { margin: 15px 0 23px; font: 800 32px Manrope,sans-serif; letter-spacing: 3px; color: #f8dda6; }
+.access-card h2 { font-size: 24px; }
+.access-form { margin-top: 26px; text-align: left; }
+.access-form input { font-size: 18px; }
+.access-submit { width: 100%; min-height: 52px; font-size: 18px; }
+.access-status { padding: 12px 0; font-size: 17px; color: #d4c9e0; }
+.drawer-content .sign-out { margin-top: 24px; color: #f7d49c; background: #f5cd7c0c; }
+@media(max-width:360px) { .access-card { padding: 26px 22px; } .access-logo { width: 82px; height: 82px; } }

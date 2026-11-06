@@ -291,3 +291,23 @@ input::placeholder { color: #9e94af; }
 .access-status { padding: 12px 0; font-size: 17px; color: #d4c9e0; }
 .drawer-content .sign-out { margin-top: 24px; color: #f7d49c; background: #f5cd7c0c; }
 @media(max-width:360px) { .access-card { padding: 26px 22px; } .access-logo { width: 82px; height: 82px; } }
+
+/* Name above, stock or price below, separated by the brand's gold line. */
+.product-card.inventory-card,.product-card.sale-card { padding: 0; overflow: hidden; }
+.card-upper { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; flex: 1 1 auto; width: 100%; min-height: 125px; padding: 14px 18px 16px; }
+.card-upper .product-title { margin: 0; }
+.card-lower { display: flex; align-items: center; justify-content: center; flex: 1 1 auto; width: 100%; min-height: 110px; padding: 16px 18px; border-top: 1px solid #f5cd7c70; background: #15142026; }
+.card-lower.quantity { margin: 0; }
+.product-card .card-lower strong,.product-card .sale-price { color: var(--gold); }
+.card-lower .sale-price { margin: 0; }
+.sale-card .sale-trigger { padding: 0; align-items: stretch; }
+.sale-create-grid { margin-bottom: 30px; }
+.sale-group { min-width: 0; }
+.sale-group+.sale-group { margin-top: 30px; padding-top: 26px; border-top: 1px solid #f5cd7c35; }
+.sale-group h3 { margin: 0 0 18px; color: #f5d59b; font: 700 26px Manrope,sans-serif; }
+@media(max-width:600px) {
+  .card-upper { padding-inline: 18px; }
+  .card-lower { padding-inline: 18px; }
+  .sale-group h3 { font-size: 24px; }
+  .sale-group+.sale-group { margin-top: 25px; padding-top: 23px; }
+}

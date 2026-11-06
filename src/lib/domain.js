@@ -30,3 +30,13 @@ export function sortedSales(sales, now = new Date()) {
   const age = sale => (current - seconds(saleTime(sale)) + 86400) % 86400;
   return [...sales].reverse().sort((a, b) => age(a) - age(b));
 }
+
+export function groupOffers(offers) {
+  const groups = new Map([[1, []], [2, []], [3, []]]);
+  offers.forEach(offer => {
+    const count = offer.productIds.length;
+    if (!groups.has(count)) groups.set(count, []);
+    groups.get(count).push(offer);
+  });
+  return [...groups.entries()].sort(([a], [b]) => a - b).map(([count, items]) => ({count, offers: items}));
+}

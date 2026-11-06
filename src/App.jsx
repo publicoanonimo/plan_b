@@ -4,7 +4,7 @@ import Modal from './components/Modal.jsx';
 import ModuleDrawer from './components/ModuleDrawer.jsx';
 import SaleTitle from './components/SaleTitle.jsx';
 import { subscribe, saveProduct, saveOffer, removeItem, recordSale, closeRegister } from './lib/store.js';
-import { isAvailable, money, saleName, toCents, totals, saleTime, sortedSales } from './lib/domain.js';
+import { isAvailable, money, saleName, toCents, totals, saleTime, sortedSales, groupOffers } from './lib/domain.js';
 const modules = {inicio: 'Inicio', cajas: 'Cajas', inventario: 'Inventario'};
 const icons = {inicio: LayoutDashboard, cajas: Banknote, inventario: Package};
 export default function App({onSignOut}) {
@@ -45,6 +45,7 @@ export default function App({onSignOut}) {
     if (modal.type === 'mixed') run(() => recordSale(modal.item.id, toCents(form.qr), toCents(form.cash)), 'Venta registrada correctamente');
   }
   const stats = [{label: 'Total QR', value: sum.qr, className: 'purple'}, {label: 'Total efectivo', value: sum.cash, className: 'green'}, {label: 'Total de caja', value: sum.total, className: 'gold'}];
+  const offerGroups = groupOffers(data.offers);
   const editableProducts = data.products.filter(p => p.quantity > 0 || modal?.item?.productIds?.includes(p.id));
   const missingProductIds = form.productIds?.filter(id => !data.products.some(p => p.id === id)) || [];
   return <div className="app-shell">
@@ -62,12 +63,29 @@ export default function App({onSignOut}) {
       <div className="table-scroll"><table aria-label="Ventas registradas"><thead><tr><th scope="col">PRODUCTO / COMBINACIÓN</th><th scope="col">MONTO</th><th scope="col">MÉTODO DE PAGO</th><th scope="col">HORA</th></tr></thead><tbody>{sales.map(s => <tr key={s.id}><td data-label="Producto"><div className="sale-name"><span className="row-icon"><Wine size={17}/></span><span>{s.name}</span></div></td><td className="amount" data-label="Monto">Bs {money(s.totalCents)}</td><td data-label="Método de pago"><span className={`payment-badge ${s.payment === 'QR' ? 'qr' : s.payment === 'Efectivo' ? 'cash' : 'mixed'}`}>{s.payment === 'QR' ? <QrCode size={12}/> : <Banknote size={12}/>} {s.payment}</span>{s.payment === 'QR + Efectivo' && <small className="split-detail">QR {money(s.qrCents)} · Ef. {money(s.cashCents)}</small>}</td><td className="time-cell" data-label="Hora">{saleTime(s)}</td></tr>)}</tbody></table></div>
       {!sales.length && <p className="empty-state">{loading ? 'Cargando…' : 'Sin ventas registradas'}</p>}
       </section>
-    </> : <>
-      {loading ? <p className="empty-state">Cargando…</p> : <section className="product-grid">
-        <button className="create-card" onClick={() => open(page === 'inventario' ? 'product' : 'offer')}><span className="add-circle"><Plus size={27}/></span><strong>{page === 'inventario' ? 'Registrar producto' : 'Añadir producto a la venta'}</strong></button>
-        {page === 'inventario' ? data.products.map(p => <article key={p.id} className={`product-card ${p.quantity === 0 ? 'sold-out' : ''}`}><div className="card-meta"><span className={`stock-badge ${p.quantity === 0 ? 'out' : ''}`}><span/>{p.quantity > 0 ? 'Disponible' : 'Agotado'}</span></div><h2 className="product-title">{p.name}</h2><div className="quantity"><strong style={{fontSize: `${Math.min(64, Math.floor(350 / String(p.quantity).length))}px`}}>{p.quantity}<small>unidades</small></strong></div><button className="icon-button card-options" aria-label={`Opciones de ${p.name}`} aria-haspopup="dialog" onClick={() => open('actions-product', p)}><MoreVertical size={23}/></button></article>) : data.offers.map(o => {const usable = isAvailable(o, data.products); return <article key={o.id} className={`product-card sale-card ${!usable ? 'sold-out' : ''}`}><button className="sale-trigger" disabled={!usable || busy} onClick={() => open('payment', o)} aria-label={`Registrar venta de ${saleName(o, data.products)}`}><div className="card-meta"><span><Wine size={15}/> VENTA</span><span className={`stock-badge ${!usable ? 'out' : ''}`}><span/>{usable ? 'Disponible' : 'Agotado'}</span></div><SaleTitle offer={o} products={data.products}/><div className="sale-price"><small>Bs</small> {money(o.priceCents)}</div></button><button className="icon-button card-options" aria-label={`Opciones de ${saleName(o, data.products)}`} aria-haspopup="dialog" onClick={() => open('actions-offer', o)}><MoreVertical size={23}/></button></article>;})}
-      </section>}
-    </>}
+    </> : loading ? <p className="empty-state">Cargando…</p> : page === 'inventario' ? <section className="product-grid" aria-label="Productos de inventario">
+      <button className="create-card" onClick={() => open('product')}><span className="add-circle"><Plus size={27}/></span><strong>Registrar producto</strong></button>
+      {data.products.map(product => <article key={product.id} className={`product-card inventory-card ${product.quantity === 0 ? 'sold-out' : ''}`}>
+        <div className="card-upper"><div className="card-meta"><span className={`stock-badge ${product.quantity === 0 ? 'out' : ''}`}><span/>{product.quantity > 0 ? 'Disponible' : 'Agotado'}</span></div><h2 className="product-title">{product.name}</h2></div>
+        <div className="card-lower quantity"><strong style={{fontSize: `${Math.min(64, Math.floor(350 / String(product.quantity).length))}px`}}>{product.quantity}<small>unidades</small></strong></div>
+        <button className="icon-button card-options" aria-label={`Opciones de ${product.name}`} aria-haspopup="dialog" onClick={() => open('actions-product', product)}><MoreVertical size={23}/></button>
+      </article>)}
+    </section> : <div className="sales-catalog">
+      <div className="product-grid sale-create-grid"><button className="create-card" onClick={() => open('offer')}><span className="add-circle"><Plus size={27}/></span><strong>Añadir producto a la venta</strong></button></div>
+      {offerGroups.map(group => <section key={group.count} className="sale-group" aria-labelledby={`sale-group-${group.count}`}>
+        <h3 id={`sale-group-${group.count}`}>{group.count} {group.count === 1 ? 'producto' : 'productos'}</h3>
+        {group.offers.length > 0 && <div className="product-grid">{group.offers.map(offer => {
+          const usable = isAvailable(offer, data.products);
+          return <article key={offer.id} className={`product-card sale-card ${!usable ? 'sold-out' : ''}`}>
+            <button className="sale-trigger" disabled={!usable || busy} onClick={() => open('payment', offer)} aria-label={`Registrar venta de ${saleName(offer, data.products)}`}>
+              <div className="card-upper"><div className="card-meta"><span><Wine size={15}/> VENTA</span><span className={`stock-badge ${!usable ? 'out' : ''}`}><span/>{usable ? 'Disponible' : 'Agotado'}</span></div><SaleTitle offer={offer} products={data.products}/></div>
+              <div className="card-lower"><div className="sale-price"><small>Bs</small> {money(offer.priceCents)}</div></div>
+            </button>
+            <button className="icon-button card-options" aria-label={`Opciones de ${saleName(offer, data.products)}`} aria-haspopup="dialog" onClick={() => open('actions-offer', offer)}><MoreVertical size={23}/></button>
+          </article>;
+        })}</div>}
+      </section>)}
+    </div>}
     </main></div>
     {menuOpen && <ModuleDrawer onClose={() => setMenuOpen(false)}>{Object.entries(icons).map(([key, Icon]) => <button key={key} className={page === key ? 'nav-link active' : 'nav-link'} aria-current={page === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={21}/><span>{modules[key]}</span>{page === key && <Check size={17} className="nav-check"/>}</button>)}<button className="nav-link sign-out" disabled={busy} onClick={() => run(onSignOut, 'Sesión cerrada')}><LogOut size={21}/><span>Cerrar sesión</span></button></ModuleDrawer>}
     {toast && <div className="toast" role="status"><CheckCircle2 size={19}/>{toast}<button className="icon-button" aria-label="Cerrar notificación" onClick={() => setToast('')}><X size={16}/></button></div>}

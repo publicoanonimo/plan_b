@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareSale, totals, validateProduct, validatePayment, isAvailable, toCents, money, registrationTime, saleTime, sortedSales} from '../src/lib/domain.js';
+import {prepareSale, totals, validateProduct, validatePayment, isAvailable, toCents, money, registrationTime, saleTime, sortedSales, groupOffers} from '../src/lib/domain.js';
 const products = [{id: 'ron', name: 'Ron', quantity: 2}, {id: 'cola', name: 'Cocacola', quantity: 1}];
 const offer = {id: 'combo', productIds: ['ron', 'cola'], priceCents: 3500};
 test('combinación conserva nombres y reparte el pago sin duplicar el total', () => {
@@ -47,4 +47,21 @@ test('ventas anteriores muestran solo la hora y el orden cruza medianoche', () =
  assert.equal(saleTime({createdAt: legacyDate.toISOString()}), '23:58:00');
  const rows = [{id: 'antes', time: '23:58:00'}, {id: 'despues', time: '00:01:00'}];
  assert.deepEqual(sortedSales(rows, new Date(2026, 10, 7, 0, 5)).map(s=>s.id), ['despues', 'antes']);
+});
+
+test('cajas agrupa por cantidad seleccionada, mantiene secciones 1 a 3 y conserva combinaciones mayores', () => {
+ const offers = [{id: 'tres', productIds: ['a', 'b', 'c']}, {id: 'uno', productIds: ['a']}, {id: 'cuatro', productIds: ['a', 'b', 'c', 'd']}, {id: 'dos', productIds: ['a', 'b']}];
+ const groups = groupOffers(offers);
+ assert.deepEqual(groups.map(g => g.count), [1, 2, 3, 4]);
+ assert.deepEqual(groups.map(g => g.offers[0].id), ['uno', 'dos', 'tres', 'cuatro']);
+ assert.deepEqual(groupOffers([]).map(g => g.count), [1, 2, 3]);
+ assert.equal(offers[0].id, 'tres');
+});
+test('editar la cantidad de productos cambia automáticamente la sección de venta', () => {
+ const offer = {id: 'combo', productIds: ['a', 'b']};
+ assert.equal(groupOffers([offer])[1].offers[0].id, 'combo');
+ const edited = {...offer, productIds: ['a', 'b', 'c']};
+ const groups = groupOffers([edited]);
+ assert.equal(groups[1].offers.length, 0);
+ assert.equal(groups[2].offers[0].id, 'combo');
 });

@@ -50,9 +50,9 @@ export default function App({onSignOut}) {
   const missingProductIds = form.productIds?.filter(id => !data.products.some(p => p.id === id)) || [];
   return <div className="app-shell">
     <div className="workspace">
-    <header className="topbar">
+    <header className={`topbar${page !== 'inicio' ? ' topbar-with-action' : ''}`}>
       <div className="brand"><button className="logo-toggle" aria-label="Abrir módulos" aria-expanded={menuOpen} aria-controls={menuOpen ? 'module-navigation' : undefined} onClick={() => setMenuOpen(true)}><img className="brand-logo" src="/plan-b-logo.jpeg" alt="Logo PLAN B"/></button><h1>PLAN B</h1></div>
-      <div className="header-ornament" aria-hidden="true"><span/><i/><span/></div>
+      {page === 'inventario' ? <button className="button primary header-create-button" disabled={loading || busy} onClick={() => open('product')}><Plus size={20}/><span>Registrar producto</span></button> : page === 'cajas' ? <button className="button primary header-create-button" disabled={loading || busy} onClick={() => open('offer')}><Plus size={20}/><span>Añadir producto a la venta</span></button> : <div className="header-ornament" aria-hidden="true"><span/><i/><span/></div>}
     </header>
     <main><div className="page-heading"><h2 className="module-title">{modules[page]}</h2>{page === 'inicio' && <div className="heading-actions"><button className="button secondary" onClick={() => run(async () => {const {exportReport} = await import('./lib/report.js'); await exportReport(sales);}, 'PDF descargado', false)} disabled={busy || loading}><Download size={18}/>Exportar PDF</button><button className="button secondary" onClick={() => open('close-register', sales.map(s => s.id))} disabled={busy || loading || !!connectionError}><LockKeyhole size={17}/>Cerrar cajas</button></div>}</div>
     {connectionError && <div className="error-banner" role="alert">{connectionError}</div>}
@@ -64,14 +64,12 @@ export default function App({onSignOut}) {
       {!sales.length && <p className="empty-state">{loading ? 'Cargando…' : 'Sin ventas registradas'}</p>}
       </section>
     </> : loading ? <p className="empty-state">Cargando…</p> : page === 'inventario' ? <section className="product-grid" aria-label="Productos de inventario">
-      <button className="create-card" onClick={() => open('product')}><span className="add-circle"><Plus size={27}/></span><strong>Registrar producto</strong></button>
       {data.products.map(product => <article key={product.id} className={`product-card inventory-card ${product.quantity === 0 ? 'sold-out' : ''}`}>
         <div className="card-upper"><div className="card-meta"><span className={`stock-badge ${product.quantity === 0 ? 'out' : ''}`}><span/>{product.quantity > 0 ? 'Disponible' : 'Agotado'}</span></div><h2 className="product-title">{product.name}</h2></div>
         <div className="card-lower quantity"><strong style={{fontSize: `${Math.min(64, Math.floor(350 / String(product.quantity).length))}px`}}>{product.quantity}<small>unidades</small></strong></div>
         <button className="icon-button card-options" aria-label={`Opciones de ${product.name}`} aria-haspopup="dialog" onClick={() => open('actions-product', product)}><MoreVertical size={23}/></button>
       </article>)}
     </section> : <div className="sales-catalog">
-      <div className="product-grid sale-create-grid"><button className="create-card" onClick={() => open('offer')}><span className="add-circle"><Plus size={27}/></span><strong>Añadir producto a la venta</strong></button></div>
       {offerGroups.map(group => <section key={group.count} className="sale-group" aria-labelledby={`sale-group-${group.count}`}>
         <h3 id={`sale-group-${group.count}`}>{group.count} {group.count === 1 ? 'producto' : 'productos'}</h3>
         {group.offers.length > 0 && <div className="product-grid">{group.offers.map(offer => {

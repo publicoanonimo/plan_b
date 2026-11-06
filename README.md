@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Abre la dirección que muestra Vite. Sin variables Firebase funciona en modo local y almacena los datos únicamente en este navegador; el indicador de la interfaz lo señala. El modo local no transfiere automáticamente sus datos a Firebase.
+Abre la dirección que muestra Vite. La aplicación utiliza Cloud Firestore del proyecto `bdplan-b` de forma predeterminada. Para pruebas aisladas, crea `.env.local` con `VITE_STORAGE_MODE=local`. El modo local no transfiere automáticamente sus datos a Firebase.
 
 ```sh
 npm test
@@ -17,14 +17,20 @@ npm run build
 npm run preview
 ```
 
-## Conectar Firebase
+## Firebase configurado
 
-1. Crea una aplicación web en tu proyecto Firebase y habilita Cloud Firestore.
-2. Copia `.env.example` a `.env.local` y completa los seis valores de la configuración web de Firebase.
-3. Publica el contenido de `firestore.rules` en la pestaña Reglas de Firestore. Alternativamente, con Firebase CLI instalado, ejecuta `firebase deploy --only firestore:rules --project TU_PROJECT_ID`.
-4. Reinicia Vite. La interfaz indicará Firebase conectado; las actualizaciones se reciben en tiempo real.
+La inicialización está centralizada en `src/lib/firebase.js`. Inventario, tarjetas de Cajas y ventas utilizan esa misma conexión. Incluye la configuración web de `bdplan-b`; las variables `VITE_FIREBASE_*` pueden sustituirla. No es necesario crear `.env.local` para conectarse a este proyecto.
 
-No se han incluido credenciales ni conectado un proyecto Firebase real. Las variables VITE_ forman parte del cliente: usa exclusivamente la configuración web de Firebase, nunca una clave de servicio privada.
+La base de datos utilizada es **Cloud Firestore**, no Realtime Database. El campo `databaseURL` se conserva en la configuración de Firebase, pero los datos de la aplicación se guardan en las colecciones de Firestore.
+
+1. Abre el proyecto `bdplan-b` en Firebase Console, sección **Firestore Database**.
+2. Verifica que exista la base `(default)`.
+3. En **Reglas**, publica `firestore.rules` si aún no lo hiciste. Con Firebase CLI también puedes ejecutar `firebase deploy --only firestore:rules --project bdplan-b`.
+4. Inicia la aplicación y registra un producto. Debe aparecer en `posProducts`; una venta crea un documento en `posSales`.
+
+No necesitas crear las colecciones a mano. Los documentos se crean al registrar productos o ventas. Los datos anteriores de LocalStorage permanecen en su navegador y no se suben automáticamente.
+
+Las variables `VITE_` son configuración pública del cliente. No agregues claves privadas de cuentas de servicio.
 
 ### Colecciones
 
@@ -45,15 +51,16 @@ QR y Efectivo registran la venta inmediatamente. Efectivo + QR exige que los dos
 
 Inicio muestra las ventas de la caja abierta. Cerrar cajas pide confirmación y elimina únicamente las ventas mostradas al abrir la confirmación; conserva inventario, existencias y tarjetas de venta. Las ventas nuevas que lleguen después de abrir esa confirmación se conservan. El cierre es manual, no automático al cambiar la fecha. Exportar PDF incluye todas las ventas, sus desgloses QR/efectivo, hora y totales. Las ventas conservan su nombre y precio original aunque después se edite o elimine un producto.
 
-## Vercel
+## Actualizar el sitio ya desplegado en Vercel
 
-1. Sube este proyecto a tu repositorio Git.
-2. Importa el repositorio en Vercel con framework **Vite**.
-3. Añade las variables de `.env.example` en Environment Variables.
-4. Despliega. Build: `npm run build`; salida: `dist`. Se incluye `vercel.json`.
-5. Si cambias las variables, crea un nuevo despliegue.
+1. Sube estos cambios al repositorio conectado con Vercel.
+2. Si el despliegue automático está activo, espera el nuevo despliegue de producción. Si no, despliega el commit nuevo desde Vercel.
+3. La configuración de `bdplan-b` ya está incluida en el código. Si existen variables `VITE_FIREBASE_*` en **Settings → Environment Variables**, deben coincidir con `.env.example`. Usa `VITE_STORAGE_MODE=firestore` o deja esa variable sin definir; `local` desactiva Firestore.
+4. Al modificar variables, vuelve a desplegar: no cambian el JavaScript de un despliegue anterior.
+5. Framework **Vite**, build `npm run build`, salida `dist`.
+6. Abre la web actualizada, registra un producto y verifica que aparezca en Firestore y en otro navegador o dispositivo.
 
-La aplicación está preparada para Vercel; no se ha publicado en ninguna cuenta.
+No se modifican Vercel ni las reglas remotas automáticamente al compilar. El archivo `.env.example` sirve de referencia y Vercel no lo carga como configuración por sí solo.
 
 ## Referencias
 

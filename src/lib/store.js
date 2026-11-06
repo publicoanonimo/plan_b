@@ -1,9 +1,7 @@
-import { initializeApp } from 'firebase/app';
-import { getFirestore, collection, doc, onSnapshot, setDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
+import { collection, doc, onSnapshot, setDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
 import { prepareSale, validateProduct } from './domain.js';
-const env = import.meta.env;
-export const cloudEnabled = Boolean(env.VITE_FIREBASE_API_KEY && env.VITE_FIREBASE_PROJECT_ID && env.VITE_FIREBASE_APP_ID);
-const db = cloudEnabled ? getFirestore(initializeApp({apiKey: env.VITE_FIREBASE_API_KEY, authDomain: env.VITE_FIREBASE_AUTH_DOMAIN, projectId: env.VITE_FIREBASE_PROJECT_ID, storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET, messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID, appId: env.VITE_FIREBASE_APP_ID})) : null;
+import { db } from './firebase.js';
+export { cloudEnabled } from './firebase.js';
 const KEY = 'plan-b-pos-v1';
 const empty = () => ({products: [], offers: [], sales: []});
 function readLocal() { const saved = localStorage.getItem(KEY); return saved ? JSON.parse(saved) : empty(); }
@@ -22,11 +20,25 @@ export function subscribe(next, fail) {
     return () => {listeners.delete(listener); window.removeEventListener('storage', refresh);};
   }
   let state = empty();
-  return (() => {
-    const stops = [onSnapshot(collection(db, 'posProducts'), snapshot => { const all = snapshot.docs.map(d => ({...d.data(), id: d.id})); state = {...state, products: all.filter(d => d.kind !== 'offer'), offers: all.filter(d => d.kind === 'offer')}; next(state); }, fail), onSnapshot(collection(db, 'posSales'), snapshot => {state = {...state, sales: snapshot.docs.map(d => ({...d.data(), id: d.id}))}; next(state);}, fail)];
-    return () => stops.forEach(stop => stop());
-  })();
+  const ready = new Set();
+  const publish = source => {
+    ready.add(source);
+    if (ready.size === 2) next(state);
+  };
+  const stops = [
+    onSnapshot(collection(db, 'posProducts'), snapshot => {
+      const all = snapshot.docs.map(document => ({...document.data(), id: document.id}));
+      state = {...state, products: all.filter(item => item.kind === 'inventory'), offers: all.filter(item => item.kind === 'offer')};
+      publish('products');
+    }, fail),
+    onSnapshot(collection(db, 'posSales'), snapshot => {
+      state = {...state, sales: snapshot.docs.map(document => ({...document.data(), id: document.id}))};
+      publish('sales');
+    }, fail),
+  ];
+  return () => stops.forEach(stop => stop());
 }
+
 export async function saveProduct(data, id = crypto.randomUUID()) {
   validateProduct(data.name, data.quantity);
   const product = {id, kind: 'inventory', name: data.name.trim(), quantity: Number(data.quantity)};

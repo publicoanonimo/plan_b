@@ -359,7 +359,7 @@ input::placeholder { color: #9e94af; }
   .inventory-product .stock-badge { font-size: 11px; padding: 3px 6px; gap: 5px; }
   .inventory-stock strong { font-size: 18px; }
   .inventory-actions { gap: 4px; }
-  .sales-catalog .product-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 8px; }
+  .sales-catalog .product-grid { grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
   .sales-catalog .sale-card { min-height: 180px; border-radius: 12px; }
   .sale-card .card-upper { min-height: 110px; padding: 50px 6px 10px; gap: 6px; }
   .sale-card .card-lower { min-height: 54px; flex: 0 0 auto; padding: 10px 4px; }
@@ -406,7 +406,8 @@ input::placeholder { color: #9e94af; }
 .sale-card .sale-card-media { position: relative; flex: 0 0 auto; aspect-ratio: 4 / 3; min-height: 0; padding: 0; overflow: hidden; background: #191b29; }
 .sale-card-media .sale-photo { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
 .sale-photo-placeholder { color: #c8a8ef70; }
-.sale-card-media .stock-badge { position: absolute; bottom: 8px; left: 8px; background: #191b29e6; }
+.sale-card-details { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 12px; width: 100%; }
+.sale-card-details .sale-price { width: auto; }
 .sale-card .sale-card-info { flex: 1 1 auto; flex-direction: column; gap: 10px; justify-content: center; min-height: 110px; }
 .sale-card-info .product-title { margin: 0; font-size: clamp(18px,2vw,26px); }
 .sale-card-info .sale-price { font-size: clamp(30px,3vw,42px); }
@@ -420,8 +421,11 @@ input::placeholder { color: #9e94af; }
   .offer-photo-actions .button { padding: 10px; font-size: 14px; }
 }
 @media (max-width: 700px) {
-  .sale-card .sale-card-info { gap: 6px; min-height: 80px; padding: 10px 5px; }
-  .sale-card-info .product-title { font-size: clamp(13px,3.5vw,22px); }
-  .sale-card-info .sale-price { font-size: clamp(17px,4.5vw,28px); }
-  .sale-card-media .stock-badge { bottom: 5px; left: 5px; }
+  .sale-card .sale-card-media { aspect-ratio: 1; }
+  .sale-card-media .sale-photo { object-fit: contain; }
+  .sale-card .sale-card-info { gap: 8px; min-height: 0; padding: 12px 8px; }
+  .sale-card-info .product-title { font-size: clamp(14px,3.7vw,19px); }
+  .sale-card-info .sale-price { font-size: clamp(22px,5.5vw,30px); }
+  .sale-card-details { gap: 6px 10px; }
+  .sale-card .card-options { top: 5px; right: 5px; border-radius: 50%; }
 }

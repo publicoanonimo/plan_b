@@ -94,9 +94,8 @@ export default function App({onSignOut}) {
             <button className="sale-trigger" disabled={!usable || busy} onClick={() => open('payment', offer)} aria-label={`Registrar venta de ${saleName(offer, data.products)}`}>
               <div className="card-upper sale-card-media">
                 {offer.photo ? <img className="sale-photo" src={offer.photo} alt="" loading="lazy" decoding="async"/> : <Wine className="sale-photo-placeholder" size={48} aria-hidden="true"/>}
-                <span className={`stock-badge ${!usable ? 'out' : ''}`}><span/>{usable ? 'Disponible' : 'Agotado'}</span>
               </div>
-              <div className="card-lower sale-card-info"><SaleTitle offer={offer} products={data.products}/><div className="sale-price"><small>Bs</small> {money(offer.priceCents)}</div></div>
+              <div className="card-lower sale-card-info"><SaleTitle offer={offer} products={data.products}/><div className="sale-card-details"><div className="sale-price"><small>Bs</small> {money(offer.priceCents)}</div><span className={`stock-badge ${!usable ? 'out' : ''}`}><span/>{usable ? 'Disponible' : 'Agotado'}</span></div></div>
             </button>
             <button className="icon-button card-options" aria-label={`Opciones de ${saleName(offer, data.products)}`} aria-haspopup="dialog" onClick={() => open('actions-offer', offer)}><MoreVertical size={23}/></button>
           </article>;

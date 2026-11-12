@@ -92,8 +92,11 @@ export default function App({onSignOut}) {
           const usable = isAvailable(offer, data.products);
           return <article key={offer.id} className={`product-card sale-card ${!usable ? 'sold-out' : ''}`}>
             <button className="sale-trigger" disabled={!usable || busy} onClick={() => open('payment', offer)} aria-label={`Registrar venta de ${saleName(offer, data.products)}`}>
-              <div className="card-upper"><div className="card-meta"><span><Wine size={15}/> VENTA</span><span className={`stock-badge ${!usable ? 'out' : ''}`}><span/>{usable ? 'Disponible' : 'Agotado'}</span></div><SaleTitle offer={offer} products={data.products}/>{offer.photo && <img className="sale-photo" src={offer.photo} alt="" loading="lazy" decoding="async"/>}</div>
-              <div className="card-lower"><div className="sale-price"><small>Bs</small> {money(offer.priceCents)}</div></div>
+              <div className="card-upper sale-card-media">
+                {offer.photo ? <img className="sale-photo" src={offer.photo} alt="" loading="lazy" decoding="async"/> : <Wine className="sale-photo-placeholder" size={48} aria-hidden="true"/>}
+                <span className={`stock-badge ${!usable ? 'out' : ''}`}><span/>{usable ? 'Disponible' : 'Agotado'}</span>
+              </div>
+              <div className="card-lower sale-card-info"><SaleTitle offer={offer} products={data.products}/><div className="sale-price"><small>Bs</small> {money(offer.priceCents)}</div></div>
             </button>
             <button className="icon-button card-options" aria-label={`Opciones de ${saleName(offer, data.products)}`} aria-haspopup="dialog" onClick={() => open('actions-offer', offer)}><MoreVertical size={23}/></button>
           </article>;

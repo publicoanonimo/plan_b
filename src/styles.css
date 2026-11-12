@@ -403,12 +403,25 @@ input::placeholder { color: #9e94af; }
 .offer-quantity-buttons button { width: 36px; height: 36px; border: 1px solid #c8a8ef5c; border-radius: 8px; background: #b987e928; color: #f6dcff; font-size: 24px; }
 .offer-quantity-buttons output { min-width: 24px; text-align: center; color: #fff6e3; font-size: 17px; font-weight: 700; }
 
-.sale-photo { display: block; width: 100%; max-width: 240px; height: 150px; object-fit: contain; border-radius: 8px; background: #151420; }
+.sale-card .sale-card-media { position: relative; flex: 0 0 auto; aspect-ratio: 4 / 3; min-height: 0; padding: 0; overflow: hidden; background: #191b29; }
+.sale-card-media .sale-photo { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+.sale-photo-placeholder { color: #c8a8ef70; }
+.sale-card-media .stock-badge { position: absolute; bottom: 8px; left: 8px; background: #191b29e6; }
+.sale-card .sale-card-info { flex: 1 1 auto; flex-direction: column; gap: 10px; justify-content: center; min-height: 110px; }
+.sale-card-info .product-title { margin: 0; font-size: clamp(18px,2vw,26px); }
+.sale-card-info .sale-price { font-size: clamp(30px,3vw,42px); }
+.sale-card .card-options { z-index: 2; background: #191b29db; border-color: #f5cd7c66; box-shadow: 0 2px 8px #0004; }
+.sale-card .card-options:hover { background: #403650; }
 .offer-photo-field { display: grid; gap: 12px; margin-bottom: 23px; color: #e1d6ec; }
 .offer-photo-preview { display: block; width: 100%; max-width: 320px; height: 190px; object-fit: contain; border: 1px solid #71627f; border-radius: 10px; background: #191b29; }
 .offer-photo-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 .offer-photo-help { margin: 0; color: #c3b3d4; font-size: 13px; line-height: 1.5; }
 @media (max-width: 600px) {
-  .sale-photo { height: 85px; }
   .offer-photo-actions .button { padding: 10px; font-size: 14px; }
+}
+@media (max-width: 700px) {
+  .sale-card .sale-card-info { gap: 6px; min-height: 80px; padding: 10px 5px; }
+  .sale-card-info .product-title { font-size: clamp(13px,3.5vw,22px); }
+  .sale-card-info .sale-price { font-size: clamp(17px,4.5vw,28px); }
+  .sale-card-media .stock-badge { bottom: 5px; left: 5px; }
 }

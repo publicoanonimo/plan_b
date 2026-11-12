@@ -1,0 +1,120 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { registerHooks } from 'node:module';
+
+// Exercise the real storage operations with isolated local storage, never live Firebase.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === './firebase.js' && context.parentURL?.endsWith('/src/lib/store.js')) return {url: 'data:text/javascript,export const db = null; export const cloudEnabled = false;', shortCircuit: true};
+    return nextResolve(specifier, context);
+  },
+});
+Object.defineProperty(globalThis, 'navigator', {value: {locks: {request: async (_key, update) => update()}}, configurable: true});
+const storage = new Map();
+globalThis.localStorage = {getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value)};
+globalThis.window = {addEventListener() {}, removeEventListener() {}};
+const store = await import('../src/lib/store.js');
+
+test('recetas y preparaciones completan el ciclo sin modificar existencias al configurar', async () => {
+  let state;
+  const stop = store.subscribe(value => {state = value;}, error => {throw error;});
+  await store.saveProduct({name: 'Ron', quantity: 10}, 'ron');
+  await store.saveProduct({name: 'Cola', quantity: 20}, 'cola');
+  const recipe = {name: 'Cóctel', quantity: 8, ingredients: [{productId: 'ron', quantity: 2}, {productId: 'cola', quantity: 3}]};
+  await store.saveRecipe(recipe, 'recipe');
+  assert.equal(state.recipes.length, 1);
+  assert.deepEqual(state.products.map(p => p.quantity), [10, 20]);
+  await store.savePrepared('recipe', 16);
+  let batch = state.products.find(p => p.prepared);
+  assert.equal(batch.quantity, 16);
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 6);
+  await store.saveRecipe({...recipe, id: 'recipe', quantity: 4}, 'recipe');
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 6);
+  await store.savePrepared('recipe', 24, batch.id);
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 4);
+  await store.savePrepared('recipe', 8, batch.id);
+  assert.equal(state.products.find(p => p.id === batch.id).quantity, 8);
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 8);
+  const before = structuredClone(state);
+  await assert.rejects(store.savePrepared('recipe', 800, batch.id), /insuficientes/);
+  assert.deepEqual(state, before);
+  await assert.rejects(store.saveProduct({name: 'Changed', quantity: 100}, batch.id), /Preparar bebidas/);
+  await store.removeItem('recipes', 'recipe');
+  assert.ok(state.products.some(p => p.id === batch.id));
+  await store.removeItem('products', batch.id);
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 10);
+  assert.equal(state.products.find(p => p.id === 'cola').quantity, 20);
+  await store.removeItem('products', batch.id);
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 10);
+  stop();
+});
+
+test('combos de preparados guardan cantidades y descuentan QR, efectivo y mixto sin tocar ingredientes', async () => {
+  storage.clear();
+  let state;
+  const stop = store.subscribe(value => {state = value;}, error => {throw error;});
+  await store.saveProduct({name: 'Singani', quantity: 10}, 'singani');
+  await store.saveProduct({name: 'Hielo', quantity: 20}, 'hielo');
+  await store.saveRecipe({name: 'Jarras', quantity: 9, ingredients: [{productId: 'singani', quantity: 1}]}, 'jarras');
+  await store.savePrepared('jarras', 9);
+  const batch = state.products.find(p => p.prepared);
+  await store.saveOffer([batch.id, 'hielo'], 5000, 'combo', {[batch.id]: 2});
+  assert.equal(state.offers[0].productQuantities[batch.id], 2);
+  assert.equal(state.products.find(p => p.id === batch.id).quantity, 9);
+  await store.recordSale('combo', 5000, 0);
+  assert.equal(state.products.find(p => p.id === batch.id).quantity, 7);
+  assert.equal(state.sales[0].name, '2 × Jarras + Hielo');
+  assert.equal(state.sales[0].productQuantities[batch.id], 2);
+  await store.saveOffer([batch.id, 'hielo'], 6000, 'combo', {[batch.id]: 3});
+  await store.recordSale('combo', 0, 6000);
+  await store.recordSale('combo', 2000, 4000);
+  assert.equal(state.products.find(p => p.id === batch.id).quantity, 1);
+  assert.equal(state.products.find(p => p.id === 'hielo').quantity, 17);
+  assert.equal(state.products.find(p => p.id === 'singani').quantity, 9);
+  const before = structuredClone(state);
+  await assert.rejects(store.recordSale('combo', 6000, 0), /suficientes/);
+  assert.deepEqual(state, before);
+  assert.equal(state.sales[0].name, '2 × Jarras + Hielo');
+  for (const quantity of [0, -1, 1.5, '2', NaN, 1000000001]) await assert.rejects(store.saveOffer([batch.id], 1000, 'invalid', {[batch.id]: quantity}), /enteras/);
+  await assert.rejects(store.saveOffer(['hielo'], 1000, 'invalid', {hielo: 2}), /Solo los preparados/);
+  await store.saveOffer([batch.id], 1000, 'single');
+  await store.recordSale('single', 1000, 0);
+  assert.equal(state.products.find(p => p.id === batch.id).quantity, 0);
+  stop();
+});
+
+test('foto integrada persiste, se conserva al editar y se reemplaza o elimina con la tarjeta', async () => {
+  storage.clear();
+  let state;
+  const stop = store.subscribe(value => {state = value;}, error => {throw error;});
+  await store.saveProduct({name: 'Botella', quantity: 10}, 'bottle');
+  const first = 'data:image/jpeg;base64,/9j/AAAA';
+  const second = 'data:image/jpeg;base64,/9j/BBBB';
+  await store.saveOffer(['bottle'], 1000, 'photo-offer', {}, first);
+  assert.equal(state.offers[0].photo, first);
+  let reloaded;
+  const stopReload = store.subscribe(value => {reloaded = value;}, error => {throw error;});
+  assert.equal(reloaded.offers[0].photo, first);
+  await store.saveOffer(['bottle'], 2000, 'photo-offer');
+  assert.equal(state.offers[0].photo, first);
+  await store.saveOffer(['bottle'], 2000, 'photo-offer', {}, second);
+  assert.equal(state.offers[0].photo, second);
+  assert.equal(localStorage.getItem('plan-b-pos-v1').includes(first), false);
+  const before = structuredClone(state);
+  await assert.rejects(store.saveOffer(['bottle'], 0, 'photo-offer', {}, first));
+  await assert.rejects(store.saveOffer(['bottle'], 2000, 'photo-offer', {}, 'data:image/jpeg;base64,/9j/' + 'A'.repeat(280 * 1024)));
+  await assert.rejects(store.saveOffer(['bottle'], 2000, 'photo-offer', {}, 'https://example.com/photo.jpg'));
+  assert.deepEqual(state, before);
+  await store.recordSale('photo-offer', 2000, 0);
+  assert.equal('photo' in state.sales[0], false);
+  assert.equal(state.offers[0].photo, second);
+  await store.saveOffer(['bottle'], 2000, 'photo-offer', {}, null);
+  assert.equal('photo' in state.offers[0], false);
+  assert.equal(localStorage.getItem('plan-b-pos-v1').includes(second), false);
+  await store.saveOffer(['bottle'], 2000, 'photo-offer', {}, first);
+  await store.removeItem('offers', 'photo-offer');
+  assert.equal(state.offers.length, 0);
+  assert.equal(localStorage.getItem('plan-b-pos-v1').includes(first), false);
+  stopReload();
+  stop();
+});

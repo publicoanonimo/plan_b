@@ -48,7 +48,7 @@ Las variables `VITE_` son configuración pública del cliente. No agregues clave
 Se respeta exactamente el esquema de permisos solicitado, sin agregar colecciones:
 
 - `posProducts/{id}` con `kind: inventory`: nombre y cantidad entera de unidades.
-- `posProducts/{id}` con `kind: offer`: lista de identificadores `productIds` y precio en centavos `priceCents`.
+- `posProducts/{id}` con `kind: offer`: lista de identificadores `productIds`, cantidades por producto `productQuantities` y precio en centavos `priceCents`.
 - `posSales/{id}`: nombre de la tarjeta al vender, identificadores de productos, total, importe QR, importe efectivo, método y hora local `HH:mm:ss`, sin guardar fecha.
 - `costumeRegistrations` conserva sus permisos; la aplicación no la modifica.
 
@@ -56,11 +56,13 @@ Las reglas solicitadas permiten lectura y escritura públicas, sin autenticació
 
 ### Funcionamiento
 
-Inventario no incluye precio de compra, siguiendo la última especificación. Cada venta descuenta una unidad de cada producto seleccionado. No se manejan porciones ni recetas. Los agotados muestran estado, contorno y sombreado rojo; sus opciones de venta quedan deshabilitadas. Al eliminar inventario, las combinaciones afectadas quedan bloqueadas hasta editarlas. La edición de tarjetas de venta y todas las eliminaciones piden confirmación.
+Inventario no incluye precio de compra, siguiendo la última especificación. Cada venta descuenta una unidad de cada producto normal seleccionado. Para los preparados, los botones +/− al crear o editar la tarjeta permiten definir cuántas unidades incluye el combo; cada venta por QR, efectivo o pago mixto descuenta esa cantidad. Las tarjetas muestran la cantidad y se bloquean si no hay existencias suficientes para el combo completo. Las tarjetas anteriores conservan una unidad por producto de forma predeterminada. No se manejan porciones ni recetas. Los agotados muestran estado, contorno y sombreado rojo; sus opciones de venta quedan deshabilitadas. Al eliminar inventario, las combinaciones afectadas quedan bloqueadas hasta editarlas. La edición de tarjetas de venta y todas las eliminaciones piden confirmación.
 
 QR y Efectivo registran la venta inmediatamente. Efectivo + QR exige que los dos importes sumen el total exacto. Los cálculos monetarios se hacen en centavos. Firestore registra venta y descuento de existencias juntos mediante una transacción, evitando vender la última unidad dos veces. El modo local usa Web Locks donde esté disponible para serializar operaciones entre pestañas.
 
 Inicio muestra las ventas de la caja abierta. Cerrar cajas pide confirmación y elimina únicamente las ventas mostradas al abrir la confirmación; conserva inventario, existencias y tarjetas de venta. Las ventas nuevas que lleguen después de abrir esa confirmación se conservan. El cierre es manual, no automático al cambiar la fecha. Exportar PDF incluye todas las ventas, sus desgloses QR/efectivo, hora y totales. Las ventas conservan su nombre y precio original aunque después se edite o elimine un producto.
+
+La tarjeta azul **Caja**, antes de Total QR, permite establecer y actualizar un monto en bolivianos (incluido cero). Cada guardado reemplaza el monto anterior y actualiza una sola fila **Monto de caja** en Ventas, con método Caja. El monto solo se añade a Total de caja, sin afectar Total QR ni Total efectivo. El PDF usa el mismo cálculo. Al cerrar cajas se elimina el monto junto con los demás movimientos del cierre.
 
 ## Actualizar el sitio ya desplegado en Vercel
 
@@ -78,3 +80,19 @@ No se modifican Vercel ni las reglas remotas automáticamente al compilar. El ar
 - [Transacciones Firestore](https://firebase.google.com/docs/firestore/manage-data/transactions)
 - [Variables de entorno Vite](https://vite.dev/guide/env-and-mode)
 - [Vite en Vercel](https://vercel.com/docs/frameworks/frontend/vite)
+
+## Preparar bebidas
+
+Inventario muestra los productos de menor a mayor cantidad. El módulo **Preparar bebidas**, disponible en el menú del logo, contiene el botón **Preparados** para crear tarjetas de recetas. Cada tarjeta guarda un nombre, una cantidad base de unidades preparadas y los ingredientes por tanda. Guardar o editar una tarjeta no descuenta existencias; permite configurar ingredientes agotados. Las tarjetas muestran nombre e ingredientes, y permiten editar o eliminar la receta.
+
+Al pulsar una tarjeta se abre «¿Cuántas [nombre] desea preparar?». Los controles +/− cambian la cantidad por tandas completas y conservan la cantidad base como mínimo. **Preparar** crea una entrada en inventario y descuenta los ingredientes proporcionales en una sola transacción. Si falta stock, no guarda ni descuenta nada.
+
+Editar una preparación desde inventario abre el selector de cantidad en Preparar bebidas. Aumentar descuenta ingredientes adicionales y reducir devuelve la diferencia. Se conservan las unidades ya vendidas y se impide reducir por debajo de ellas. Cada preparación conserva su receta original aunque después se edite o elimine la tarjeta. Las preparaciones anteriores también pueden editarse usando como tanda su cantidad original.
+
+Eliminar una preparación pide confirmación y devuelve todos los ingredientes registrados a sus respectivos productos; si un ingrediente fue eliminado, se restaura con su nombre y las unidades devueltas. Eliminar solamente la tarjeta de receta conserva las preparaciones existentes. Recetas y preparaciones utilizan `posProducts`, sin colecciones ni reglas adicionales. El modo local mantiene las mismas operaciones.
+
+Cajas organiza las tarjetas en contenedores: **Preparados** incluye los preparados y las jarras o mezclables; **Combo de botellas** contiene las tarjetas de dos productos restantes; **Unitarios** contiene las de un producto restante. Las tarjetas de más productos se conservan en **Otros combos**, que aparece solo cuando tiene tarjetas, antes de Unitarios.
+
+Las tarjetas de Cajas permiten **Añadir foto**, **Tomar foto**, **Cambiar foto** y **Quitar foto** al crearlas o editarlas. La cámara depende del dispositivo y navegador. Se admiten JPG, PNG, WebP y AVIF de hasta 20 MB, convertidos en el navegador a JPEG de hasta 640 píxeles por lado y 280 KiB incluyendo base64. La foto se almacena en el campo `photo` del mismo documento `posProducts` de la tarjeta, sin Firebase Storage ni archivos externos. Se comprueba también un presupuesto de 900 KiB para los datos de la tarjeta, dejando margen respecto al límite de 1 MiB de Firestore.
+
+Editar precio o productos conserva la foto. Reemplazarla o quitarla solo se aplica al guardar y confirmar; cancelar conserva la imagen anterior. Eliminar la tarjeta elimina también el campo de foto. Las ventas y reportes no guardan copias de la imagen. En modo local, la foto se guarda con la tarjeta en LocalStorage y queda sujeta a la capacidad disponible del navegador. La persistencia en Firestore permite verla en otros dispositivos conectados al mismo proyecto.

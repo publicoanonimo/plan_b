@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { money, totals, saleTime } from './domain.js';
+import { money, totals, saleTime, registerSales } from './domain.js';
 
 async function loadLogo() {
   const image = new Image();
@@ -17,6 +17,7 @@ async function loadLogo() {
 }
 
 export function createReport(sales, logo) {
+  sales = registerSales(sales);
   const pdf = new jsPDF({format: 'a4', unit: 'mm'});
   const total = totals(sales);
   const issuedAt = new Date();

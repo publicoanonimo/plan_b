@@ -1,10 +1,11 @@
 import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { offerProductName } from '../lib/domain.js';
 
 export default function SaleTitle({offer, products}) {
   const titleRef = useRef(null);
   const measureRef = useRef(null);
   const [stacked, setStacked] = useState(false);
-  const names = offer.productIds.map(id => products.find(product => product.id === id)?.name || 'Producto eliminado');
+  const names = offer.productIds.map(id => offerProductName(offer, id, products));
   const name = names.join(' + ');
   const parts = names.map((part, index) => <Fragment key={offer.productIds[index]}>{index > 0 && <span className="combo-plus">+</span>}<span className="combo-name">{part}</span></Fragment>);
 

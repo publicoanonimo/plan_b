@@ -1,6 +1,6 @@
 # PLAN B · Administración de discoteca
 
-Aplicación React + Vite con Inicio, Cajas e Inventario. Diseño oscuro adaptable a móvil, persistencia local o Firebase Firestore y reportes PDF completos con paginación.
+Aplicación React + Vite con Inicio, Cajas, Inventario, Preparar bebidas y Usuarios. Diseño oscuro adaptable a móvil, persistencia local o Firebase Firestore y reportes PDF completos con paginación.
 
 ## Desarrollo
 
@@ -17,16 +17,18 @@ npm run build
 npm run preview
 ```
 
-## Ventana de acceso
+## Ventana de acceso y usuarios
 
-- Usuario: `admin`. Contraseña: `admin`.
-- Al abrir el enlace aparece una ventana de acceso antes de montar los módulos del proyecto. Las credenciales incorrectas mantienen esa ventana visible.
-- Al ingresar correctamente se recuerda el acceso con LocalStorage en el mismo navegador y dominio, sin almacenar la contraseña. Volver a abrir el enlace o recargar no requiere ingresarla nuevamente.
-- El menú del logo incluye **Cerrar sesión**, que elimina el acceso recordado. Borrar los datos del navegador, cambiar de navegador o usar otro dominio requiere volver a ingresar.
-- Si el navegador bloquea LocalStorage, el acceso funciona durante esa visita, pero no puede recordarse al volver a abrirlo.
-- No se utiliza una API de login, cookies de sesión, `SESSION_SECRET` ni Firebase Authentication. No necesitas configuración adicional de Vercel para esta ventana.
-
-Este mecanismo es un control visual del navegador y se puede alterar desde sus herramientas de desarrollo. No sustituye una autenticación de servidor ni protege el acceso directo a Firestore, cuyas reglas actuales siguen siendo públicas.
+- La primera ejecución crea la cuenta inicial `admin` con contraseña `admin`. Puede editarse desde **Usuarios**; no se vuelve a crear si se cambia su nombre o contraseña.
+- El módulo **Usuarios**, en la barra inferior, permite crear, editar y eliminar cuentas. Al crear o editar se elige el rol: **Administrador** accede a todos los módulos; **Caja**, solo a Cajas; **Editor**, a Cajas e Inventario. Los módulos restantes se ocultan y cada sesión abre un módulo permitido. Los usuarios antiguos sin rol conservan acceso de Administrador; los nuevos tienen Caja como opción inicial. Solo Administrador gestiona usuarios y debe quedar al menos uno. Los cambios de rol se aplican al sincronizar el registro, cerrando cualquier formulario abierto. No se puede eliminar la cuenta de la sesión actual ni la última cuenta disponible.
+- Cada cuenta tiene nombre, usuario único (sin distinguir mayúsculas) y contraseña. Las contraseñas nuevas requieren de 6 a 200 caracteres y confirmación. Al editar, dejarlas vacías conserva la contraseña actual.
+- Se guardan verificadores PBKDF2-HMAC-SHA256 con 600.000 iteraciones y sal aleatoria por contraseña; nunca la contraseña en texto plano. Parámetros basados en [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2).
+- Las cuentas se guardan en el documento **`posProducts/__access_users_v1`**, con tipo `access-users`, dentro de las reglas existentes de `posProducts`. Contiene el nombre, usuario, hash con sal de la contraseña, versión de sesión y fechas de cada cuenta. El tipo `access-users` se excluye del inventario, las ofertas y las recetas; los cambios se comparten entre dispositivos mediante Firestore.
+- Crear, editar, eliminar e iniciar sesión utilizan exclusivamente ese documento autorizado. No se requieren otras colecciones, cambios de reglas, Firebase Authentication, Cloud Functions ni despliegues. En modo local explícito, las cuentas se guardan separadas del POS en `plan-b-users-v1`. La aplicación no cambia automáticamente a almacenamiento local si falla Firebase.
+- Las escrituras usan transacciones en Firebase y bloqueos de almacenamiento en modo local cuando el navegador los admite. Las ediciones desactualizadas se rechazan para no sobrescribir cambios de otra ventana.
+- El acceso recordado guarda únicamente el identificador de cuenta y su versión de sesión en `plan-b-device-access-v2`. Cambiar la contraseña o eliminar una cuenta invalida sus sesiones al sincronizarse el registro; las pestañas sin conexión deben reconectarse para recibir ese cambio. Las sesiones antiguas del acceso fijo requieren ingresar otra vez.
+- **Salir**, en la cabecera de Inicio, elimina la sesión recordada. Si LocalStorage está bloqueado en modo Firebase, la sesión se conserva solo durante la visita. En modo local, el almacenamiento del navegador es necesario también para las cuentas.
+- No se utiliza una API de login, cookies de sesión, `SESSION_SECRET` ni Firebase Authentication. Los roles se verifican en la interfaz y en las operaciones de gestión de usuarios del cliente. Este módulo mantiene el control visual del navegador: no sustituye autenticación de servidor ni protege el acceso directo a Firestore. Las reglas actuales permiten leer y modificar también el registro de usuarios sin autenticación; los verificadores con sal no convierten esas reglas públicas en un sistema de autorización.
 
 ## Firebase configurado
 
@@ -83,7 +85,7 @@ No se modifican Vercel ni las reglas remotas automáticamente al compilar. El ar
 
 ## Preparar bebidas
 
-Inventario muestra los productos de menor a mayor cantidad. El módulo **Preparar bebidas**, disponible en el menú del logo, contiene el botón **Preparados** para crear tarjetas de recetas. Cada tarjeta guarda un nombre, una cantidad base de unidades preparadas y los ingredientes por tanda. Guardar o editar una tarjeta no descuenta existencias; permite configurar ingredientes agotados. Las tarjetas muestran nombre e ingredientes, y permiten editar o eliminar la receta.
+Inventario muestra los productos de menor a mayor cantidad. El módulo **Preparar bebidas**, disponible en la barra inferior, contiene el botón **Preparados** para crear tarjetas de recetas. Cada tarjeta guarda un nombre, una cantidad base de unidades preparadas y los ingredientes por tanda. Guardar o editar una tarjeta no descuenta existencias; permite configurar ingredientes agotados. Las tarjetas muestran nombre e ingredientes, y permiten editar o eliminar la receta.
 
 Al pulsar una tarjeta se abre «¿Cuántas [nombre] desea preparar?». Los controles +/− cambian la cantidad por tandas completas y conservan la cantidad base como mínimo. **Preparar** crea una entrada en inventario y descuenta los ingredientes proporcionales en una sola transacción. Si falta stock, no guarda ni descuenta nada.
 

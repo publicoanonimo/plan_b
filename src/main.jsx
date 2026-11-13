@@ -2,4 +2,5 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import AuthGate from './components/AuthGate.jsx';
 import './styles.css';
+import './warehouse.css';
 createRoot(document.getElementById('root')).render(<React.StrictMode><AuthGate /></React.StrictMode>);

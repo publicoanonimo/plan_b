@@ -1,42 +1,83 @@
-import { collection, doc, onSnapshot, setDoc, runTransaction, writeBatch } from 'firebase/firestore';
+import { collection, doc, onSnapshot, query, where, setDoc, runTransaction, writeBatch } from 'firebase/firestore';
 import { prepareSale, prepareCashEntry, prepareRecipe, preparationPlan, preparationRefund, validateProduct, offerQuantity, CASH_ENTRY_ID } from './domain.js';
 import { db } from './firebase.js';
 import { validateOfferPhoto } from './offerPhoto.js';
 export { cloudEnabled } from './firebase.js';
 const KEY = 'plan-b-pos-v1';
 const empty = () => ({products: [], offers: [], sales: [], recipes: []});
-function readLocal() { const saved = localStorage.getItem(KEY); return saved ? {...empty(), ...JSON.parse(saved)} : empty(); }
+let cachedLocalJSON;
+let cachedLocalState;
+function readLocal() {
+  const saved = localStorage.getItem(KEY);
+  if (!cachedLocalState || saved !== cachedLocalJSON) {
+    cachedLocalState = saved ? {...empty(), ...JSON.parse(saved)} : empty();
+    cachedLocalJSON = saved;
+  }
+  // Mutations replace arrays/documents, keeping unchanged cards in memory.
+  return {...cachedLocalState};
+}
 let local;
 const listeners = new Set();
 function notify() { for (const listener of listeners) listener(local); }
 async function mutateLocal(action) {
-  const update = () => { local = readLocal(); action(local); localStorage.setItem(KEY, JSON.stringify(local)); notify(); };
+  const update = () => {
+    const next = readLocal();
+    action(next);
+    const saved = JSON.stringify(next);
+    localStorage.setItem(KEY, saved);
+    cachedLocalJSON = saved; cachedLocalState = next; local = next;
+    notify();
+  };
   if (navigator.locks) await navigator.locks.request(KEY, update); else update();
 }
-export function subscribe(next, fail) {
+export function subscribe(next, fail, {includeSales = true} = {}) {
   if (!db) {
-    const listener = data => next({...data});
+    const listener = data => next({...data, sales: includeSales ? data.sales : []});
     const refresh = () => { try { local = readLocal(); listener(local); } catch { fail(new Error('No se pudieron leer los datos locales. Verifica el almacenamiento del navegador.')); } };
     refresh(); listeners.add(listener); window.addEventListener('storage', refresh);
     return () => {listeners.delete(listener); window.removeEventListener('storage', refresh);};
   }
   let state = empty();
+  const catalog = {products: new Map(), offers: new Map(), recipes: new Map()};
+  const kinds = {inventory: 'products', offer: 'offers', recipe: 'recipes'};
+  const documentKinds = new Map();
+  const sales = new Map();
   const ready = new Set();
-  const publish = source => {
+  let published = false;
+  const publish = (source, changed) => {
     ready.add(source);
-    if (ready.size === 2) next(state);
+    if (ready.size === (includeSales ? 2 : 1) && (changed || !published)) {
+      published = true;
+      next(state);
+    }
   };
   const stops = [
-    onSnapshot(collection(db, 'posProducts'), snapshot => {
-      const all = snapshot.docs.map(document => ({...document.data(), id: document.id}));
-      state = {...state, products: all.filter(item => item.kind === 'inventory'), offers: all.filter(item => item.kind === 'offer'), recipes: all.filter(item => item.kind === 'recipe')};
-      publish('products');
-    }, fail),
-    onSnapshot(collection(db, 'posSales'), snapshot => {
-      state = {...state, sales: snapshot.docs.map(document => ({...document.data(), id: document.id}))};
-      publish('sales');
+    onSnapshot(query(collection(db, 'posProducts'), where('kind', 'in', ['inventory', 'offer', 'recipe'])), snapshot => {
+      const changed = new Set();
+      for (const change of snapshot.docChanges()) {
+        const id = change.doc.id;
+        const previousKind = documentKinds.get(id);
+        if (previousKind) {catalog[previousKind].delete(id); changed.add(previousKind);}
+        documentKinds.delete(id);
+        if (change.type !== 'removed') {
+          const item = {...change.doc.data(), id};
+          const kind = kinds[item.kind];
+          if (kind) {catalog[kind].set(id, item); documentKinds.set(id, kind); changed.add(kind);}
+        }
+      }
+      if (changed.size) state = {...state, ...Object.fromEntries([...changed].map(kind => [kind, [...catalog[kind].values()]]))};
+      publish('products', changed.size > 0);
     }, fail),
   ];
+  if (includeSales) stops.push(onSnapshot(collection(db, 'posSales'), snapshot => {
+    const changes = snapshot.docChanges();
+    for (const change of changes) {
+      if (change.type === 'removed') sales.delete(change.doc.id);
+      else sales.set(change.doc.id, {...change.doc.data(), id: change.doc.id});
+    }
+    if (changes.length) state = {...state, sales: [...sales.values()]};
+    publish('sales', changes.length > 0);
+  }, fail));
   return () => stops.forEach(stop => stop());
 }
 
@@ -48,7 +89,7 @@ export async function saveProduct(data, id = crypto.randomUUID()) {
     if (existing.data()?.prepared) throw new Error('Edita la cantidad desde Preparar bebidas.');
     transaction.set(doc(db, 'posProducts', id), product, {merge: true});
   });
-  else await mutateLocal(state => {const index = state.products.findIndex(p => p.id === id); if (state.products[index]?.prepared) throw new Error('Edita la cantidad desde Preparar bebidas.'); if (index < 0) state.products.push(product); else state.products[index] = {...state.products[index], ...product};});
+  else await mutateLocal(state => {const existing = state.products.find(p => p.id === id); if (existing?.prepared) throw new Error('Edita la cantidad desde Preparar bebidas.'); state.products = existing ? state.products.map(p => p.id === id ? {...p, ...product} : p) : [...state.products, product];});
 }
 export async function saveRecipe(data, id = crypto.randomUUID()) {
   if (db) await runTransaction(db, async transaction => {
@@ -119,7 +160,7 @@ export async function saveOffer(productIds, priceCents, id = crypto.randomUUID()
     if (!productIds.every(pid => state.products.some(p => p.id === pid && (p.quantity > 0 || retainedIds.includes(pid))))) throw new Error('Los productos seleccionados deben estar disponibles.');
     validateQuantities(state.products);
     const next = attachPhoto(state.offers[index]);
-    if (index < 0) state.offers.push(next); else state.offers[index] = next;
+    state.offers = index < 0 ? [...state.offers, next] : state.offers.map(item => item.id === id ? next : item);
   });
 }
 export async function removeItem(kind, id) {
@@ -144,15 +185,27 @@ export async function removeItem(kind, id) {
     state[kind] = state[kind].filter(p => p.id !== id);
   });
 }
-export async function recordSale(offerId, qrCents, cashCents) {
+export async function recordSale(offerId, qrCents, cashCents, displayedOffer = null) {
   const id = crypto.randomUUID();
   if (db) {
     await runTransaction(db, async transaction => {
-      const offerDoc = await transaction.get(doc(db, 'posProducts', offerId));
-      if (!offerDoc.exists()) throw new Error('Esta opción de venta ya no existe.');
+      // Use the displayed IDs only to start independent reads together. The
+      // transaction's server documents remain authoritative on every retry.
+      const hintedIds = displayedOffer?.id === offerId && Array.isArray(displayedOffer.productIds)
+        ? [...new Set(displayedOffer.productIds)].filter(id => typeof id === 'string' && id !== offerId)
+        : [];
+      const [offerDoc, ...prefetched] = await Promise.all([
+        transaction.get(doc(db, 'posProducts', offerId)),
+        ...hintedIds.map(pid => transaction.get(doc(db, 'posProducts', pid))),
+      ]);
+      if (!offerDoc.exists() || offerDoc.data().kind !== 'offer') throw new Error('Esta opción de venta ya no existe.');
       const offer = {...offerDoc.data(), id: offerId};
-      const snapshots = await Promise.all(offer.productIds.map(pid => transaction.get(doc(db, 'posProducts', pid))));
-      const products = snapshots.filter(s => s.exists()).map(s => ({...s.data(), id: s.id}));
+      const byId = new Map(prefetched.map(snapshot => [snapshot.id, snapshot]));
+      const missing = offer.productIds.filter(pid => !byId.has(pid));
+      const additional = await Promise.all(missing.map(pid => transaction.get(doc(db, 'posProducts', pid))));
+      additional.forEach(snapshot => byId.set(snapshot.id, snapshot));
+      const products = offer.productIds.map(pid => byId.get(pid))
+        .filter(s => s.exists() && s.data().kind === 'inventory').map(s => ({...s.data(), id: s.id}));
       const sale = prepareSale(offer, products, qrCents, cashCents);
       products.forEach(p => transaction.update(doc(db, 'posProducts', p.id), {quantity: p.quantity - offerQuantity(offer, p.id)}));
       transaction.set(doc(db, 'posSales', id), {...sale, id});
@@ -162,7 +215,7 @@ export async function recordSale(offerId, qrCents, cashCents) {
     if (!offer) throw new Error('Esta opción de venta ya no existe.');
     const sale = prepareSale(offer, state.products, qrCents, cashCents);
     state.products = state.products.map(p => offer.productIds.includes(p.id) ? {...p, quantity: p.quantity - offerQuantity(offer, p.id)} : p);
-    state.sales.push({...sale, id});
+    state.sales = [...state.sales, {...sale, id}];
   });
 }
 

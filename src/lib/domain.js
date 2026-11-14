@@ -1,5 +1,7 @@
 export const toCents = value => Math.round(Number(value) * 100);
-export const money = cents => new Intl.NumberFormat('es-BO', {minimumFractionDigits: cents % 100 === 0 ? 0 : 2, maximumFractionDigits: 2}).format(cents / 100);
+const wholeMoney = new Intl.NumberFormat('es-BO', {minimumFractionDigits: 0, maximumFractionDigits: 2});
+const fractionalMoney = new Intl.NumberFormat('es-BO', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+export const money = cents => (cents % 100 === 0 ? wholeMoney : fractionalMoney).format(cents / 100);
 export function validateProduct(name, quantity) {
   if (!name?.trim() || name.trim().length > 80) throw new Error('Escribe un nombre de entre 1 y 80 caracteres.');
   if (String(quantity).trim() === '' || !Number.isSafeInteger(Number(quantity)) || Number(quantity) < 0) throw new Error('La cantidad debe ser un número entero igual o mayor a cero.');
@@ -122,6 +124,7 @@ export function sortedSales(sales, now = new Date()) {
 }
 
 export function groupOffers(offers, products = []) {
+  const productsById = new Map(products.map(product => [product.id, product]));
   const groups = [
     {id: 'preparados', name: 'Preparados', offers: []},
     {id: 'botellas', name: 'Combo de botellas', offers: []},
@@ -130,7 +133,7 @@ export function groupOffers(offers, products = []) {
   ];
   offers.forEach(offer => {
     const prepared = offer.productIds.some(id => {
-      const product = products.find(p => p.id === id);
+      const product = productsById.get(id);
       return product?.prepared || /\b(jarras?|mezclables?|mesclables?)\b/i.test(product?.name || '');
     });
     const group = prepared ? 'preparados' : offer.productIds.length === 2 ? 'botellas' : offer.productIds.length === 1 ? 'unitarios' : 'otros';

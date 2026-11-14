@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { Banknote, Check, ChevronRight, LockKeyhole, CircleDollarSign, Download, LayoutDashboard, Package, Plus, QrCode, Trash2, Pencil, MoreVertical, LogOut, Wine, X, CheckCircle2, Users } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Banknote, Check, ChevronRight, LockKeyhole, CircleDollarSign, Download, LayoutDashboard, Package, Plus, QrCode, Trash2, Pencil, LogOut, Wine, X, CheckCircle2, Users } from 'lucide-react';
 import Modal from './components/Modal.jsx';
 import PreparedForm from './components/PreparedForm.jsx';
 import PreparationAmount from './components/PreparationAmount.jsx';
-import SaleTitle from './components/SaleTitle.jsx';
+import SalesCatalog from './components/SalesCatalog.jsx';
 import OfferPhotoField from './components/OfferPhotoField.jsx';
 import UsersModule from './components/UsersModule.jsx';
 import UserForm from './components/UserForm.jsx';
@@ -11,13 +11,14 @@ import {saveUser, deleteUser} from './lib/users.js';
 import {allowedModules, canOpenModal, userRole} from './lib/roles.js';
 import { compressOfferPhoto } from './lib/offerPhoto.js';
 import { subscribe, saveProduct, savePrepared, saveRecipe, saveOffer, removeItem, recordSale, recordCashEntry, closeRegister } from './lib/store.js';
-import { isAvailable, money, saleName, toCents, totals, saleTime, sortedSales, groupOffers, cashEntryTotal, registerSales } from './lib/domain.js';
+import { money, saleName, toCents, totals, saleTime, sortedSales, cashEntryTotal, registerSales } from './lib/domain.js';
 const modules = {inicio: 'Inicio', cajas: 'Cajas', inventario: 'Inventario', preparar: 'Preparar bebidas', usuarios: 'Usuarios'};
 const icons = {inicio: LayoutDashboard, cajas: Banknote, inventario: Package, preparar: Wine, usuarios: Users};
 export default function App({onSignOut, users, currentUser, session, usersStorage}) {
   const [requestedPage, setPage] = useState('inicio');
   const permittedModules = allowedModules(currentUser);
   const page = permittedModules.includes(requestedPage) ? requestedPage : permittedModules[0];
+  const includeSales = permittedModules.includes('inicio');
   const [data, setData] = useState({products: [], offers: [], sales: [], recipes: []});
   const [loading, setLoading] = useState(true);
   const [connectionError, setConnectionError] = useState('');
@@ -30,10 +31,17 @@ export default function App({onSignOut, users, currentUser, session, usersStorag
   const [toast, setToast] = useState('');
   const [form, setForm] = useState({});
   useEffect(() => {setModal(null); setError(''); setToast('');}, [role]);
-  useEffect(() => subscribe(value => {setData(value); setLoading(false); setConnectionError('');}, e => {setConnectionError(`No se pudo cargar la información: ${e.message}`); setLoading(false);}), []);
+  useEffect(() => {
+    setLoading(true);
+    return subscribe(value => {setData(value); setLoading(false); setConnectionError('');}, e => {setConnectionError(`No se pudo cargar la información: ${e.message}`); setLoading(false);}, {includeSales});
+  }, [includeSales]);
   useEffect(() => {if (!toast) return; const timer = setTimeout(() => setToast(''), 4000); return () => clearTimeout(timer);}, [toast]);
-  const sales = sortedSales(registerSales(data.sales));
-  const sum = totals(sales);
+  const sales = useMemo(() => page === 'inicio' ? sortedSales(registerSales(data.sales)) : [], [data.sales, page]);
+  const sum = useMemo(() => totals(sales), [sales]);
+  const openSaleModal = useCallback((type, item) => {
+    if (!canOpenModal(currentUser, type)) return;
+    setError(''); setModal({type, item}); setForm({qr: '', cash: ''});
+  }, [currentUser]);
 
   function navigate(next) {if (permittedModules.includes(next)) {setPage(next); setModal(null); setError('');}}
   function open(type, item) {
@@ -55,10 +63,9 @@ export default function App({onSignOut, users, currentUser, session, usersStorag
       run(() => saveOffer(form.productIds, toCents(form.price), modal.item?.id, form.productQuantities, form.photo), 'Tarjeta de venta guardada');
     }
     if (modal.type === 'cash-entry') run(() => recordCashEntry(toCents(form.amount)), 'Monto de caja actualizado');
-    if (modal.type === 'mixed') run(() => recordSale(modal.item.id, toCents(form.qr), toCents(form.cash)), 'Venta registrada correctamente');
+    if (modal.type === 'mixed') run(() => recordSale(modal.item.id, toCents(form.qr), toCents(form.cash), modal.item), 'Venta registrada correctamente');
   }
   const stats = [{label: 'Total QR', value: sum.qr, className: 'purple'}, {label: 'Total efectivo', value: sum.cash, className: 'green'}, {label: 'Total de caja', value: sum.total, className: 'gold'}];
-  const offerGroups = groupOffers(data.offers, data.products);
   const editableProducts = data.products.filter(p => p.quantity > 0 || modal?.item?.productIds?.includes(p.id));
   const missingProductIds = form.productIds?.filter(id => !data.products.some(p => p.id === id)) || [];
   return <div className="app-shell">
@@ -100,24 +107,7 @@ export default function App({onSignOut, users, currentUser, session, usersStorag
         <div className="recipe-actions"><button className="icon-button" disabled={busy} aria-label={`Editar receta ${recipe.name}`} onClick={() => open('prepared', recipe)}><Pencil size={19}/></button><button className="icon-button inventory-delete" disabled={busy} aria-label={`Eliminar receta ${recipe.name}`} onClick={() => open('delete-recipe', recipe)}><Trash2 size={19}/></button></div>
       </article>)}</div>
       {!data.recipes.length && <p className="empty-state">Crea una tarjeta con el botón Preparados.</p>}
-    </section> : <div className="sales-catalog">
-      {offerGroups.map(group => <section key={group.id} className="sale-group panel" aria-labelledby={`sale-group-${group.id}`}>
-        <h3 id={`sale-group-${group.id}`}>{group.name}</h3>
-        {group.offers.length > 0 && <div className="product-grid">{group.offers.map(offer => {
-          const usable = isAvailable(offer, data.products);
-          return <article key={offer.id} className={`product-card sale-card ${!usable ? 'sold-out' : ''}`}>
-            <button className="sale-trigger" disabled={!usable || busy} onClick={() => open('payment', offer)} aria-label={`Registrar venta de ${saleName(offer, data.products)}`}>
-              <div className="card-upper sale-card-media">
-                {offer.photo ? <img className="sale-photo" src={offer.photo} alt="" loading="lazy" decoding="async"/> : <Wine className="sale-photo-placeholder" size={48} aria-hidden="true"/>}
-              </div>
-              <div className="card-lower sale-card-info"><SaleTitle offer={offer} products={data.products}/><div className="sale-card-details"><div className="sale-price"><small>Bs</small> {money(offer.priceCents)}</div><span className={`stock-badge ${!usable ? 'out' : ''}`}><span/>{usable ? 'Disponible' : 'Agotado'}</span></div></div>
-            </button>
-            <button className="icon-button card-options" aria-label={`Opciones de ${saleName(offer, data.products)}`} aria-haspopup="dialog" onClick={() => open('actions-offer', offer)}><MoreVertical size={23}/></button>
-          </article>;
-        })}</div>}
-        {!group.offers.length && <p className="empty-state">Sin tarjetas en este contenedor</p>}
-      </section>)}
-    </div>}
+    </section> : <SalesCatalog offers={data.offers} products={data.products} busy={busy} onOpen={openSaleModal}/>}
     </main></div>
     <nav className="module-waybar" aria-label="Módulos" style={{gridTemplateColumns: `repeat(${permittedModules.length}, minmax(0, 1fr))`}}>
       {Object.entries(icons).filter(([key]) => permittedModules.includes(key)).map(([key, Icon]) => <button type="button" key={key} className={`waybar-button${page === key ? ' active' : ''}`} aria-label={modules[key]} title={modules[key]} aria-current={page === key ? 'page' : undefined} onClick={() => navigate(key)}><Icon size={23} aria-hidden="true"/><span>{modules[key]}</span></button>)}
@@ -143,7 +133,7 @@ export default function App({onSignOut, users, currentUser, session, usersStorag
         {modal.type === 'mixed' && <><label>Monto QR (Bs)<input autoFocus name="qr" type="number" required min="0.01" step="0.01" max={modal.item.priceCents / 100} value={form.qr} onChange={change} placeholder="0"/></label><label>Monto efectivo (Bs)<input name="cash" type="number" required min="0.01" step="0.01" max={modal.item.priceCents / 100} value={form.cash} onChange={change} placeholder="0"/></label><div className={`payment-remainder ${toCents(form.qr || 0) + toCents(form.cash || 0) === modal.item.priceCents ? 'balanced' : ''}`}><span>Restante por distribuir</span><strong>Bs {money(modal.item.priceCents - toCents(form.qr || 0) - toCents(form.cash || 0))}</strong></div></>}
         <div className="modal-actions"><button className="button secondary" type="button" onClick={() => setModal(null)}>Cancelar</button><button className="button primary" type="submit" disabled={modal.type === 'offer' && (!form.productIds.length || missingProductIds.length > 0)}><Check size={16}/>{busy ? 'Guardando…' : modal.type === 'cash-entry' ? 'Guardar monto' : modal.type === 'product' ? modal.item ? 'Guardar cambios' : 'Registrar producto' : modal.type === 'mixed' ? 'Registrar venta' : 'Guardar tarjeta'}</button></div>
       </fieldset></form>}
-      {modal.type === 'payment' && <div className="payment-options"><button disabled={busy} onClick={() => run(() => recordSale(modal.item.id, modal.item.priceCents, 0), 'Venta QR registrada')}><span className="payment-option-icon qr"><QrCode size={25}/></span><span><strong>QR</strong></span><ChevronRight size={18}/></button><button disabled={busy} onClick={() => run(() => recordSale(modal.item.id, 0, modal.item.priceCents), 'Venta en efectivo registrada')}><span className="payment-option-icon cash"><Banknote size={25}/></span><span><strong>Efectivo</strong></span><ChevronRight size={18}/></button><button disabled={busy} onClick={() => open('mixed', modal.item)}><span className="payment-option-icon mixed"><CircleDollarSign size={25}/></span><span><strong>Efectivo + QR</strong></span><ChevronRight size={18}/></button></div>}
+      {modal.type === 'payment' && <div className="payment-options"><button disabled={busy} onClick={() => run(() => recordSale(modal.item.id, modal.item.priceCents, 0, modal.item), 'Venta QR registrada')}><span className="payment-option-icon qr"><QrCode size={25}/></span><span><strong>QR</strong></span><ChevronRight size={18}/></button><button disabled={busy} onClick={() => run(() => recordSale(modal.item.id, 0, modal.item.priceCents, modal.item), 'Venta en efectivo registrada')}><span className="payment-option-icon cash"><Banknote size={25}/></span><span><strong>Efectivo</strong></span><ChevronRight size={18}/></button><button disabled={busy} onClick={() => open('mixed', modal.item)}><span className="payment-option-icon mixed"><CircleDollarSign size={25}/></span><span><strong>Efectivo + QR</strong></span><ChevronRight size={18}/></button></div>}
       {modal.type.startsWith('delete') && modal.type !== 'delete-user' && <><p className="delete-copy">Eliminarás <strong>{modal.type === 'delete-product' || modal.type === 'delete-recipe' ? modal.item.name : saleName(modal.item, data.products)}</strong>.{modal.item.prepared && ' Se devolverán a inventario todos los ingredientes utilizados en esta preparación.'}{modal.type === 'delete-recipe' && ' Las bebidas ya preparadas se conservarán en inventario.'}</p><div className="modal-actions"><button className="button secondary" disabled={busy} onClick={() => setModal(null)}>Cancelar</button><button className="button delete-button" disabled={busy} onClick={() => run(() => removeItem(modal.type === 'delete-product' ? 'products' : modal.type === 'delete-recipe' ? 'recipes' : 'offers', modal.item.id), 'Eliminado correctamente')}><Trash2 size={16}/>{busy ? 'Eliminando…' : 'Sí, eliminar'}</button></div></>}
       {modal.type === 'confirm-offer' && <><div className="edit-summary">{form.photo && <img className="offer-photo-preview" src={form.photo} alt="Foto de la tarjeta a guardar"/>}<strong>{saleName(form, data.products)}</strong><span>Bs {money(toCents(form.price))}</span></div><div className="modal-actions"><button className="button secondary" disabled={busy} onClick={() => setModal({...modal, type: 'offer'})}>Volver</button><button className="button primary" disabled={busy} onClick={() => run(() => saveOffer(form.productIds, toCents(form.price), modal.item.id, form.productQuantities, form.photo), 'Tarjeta actualizada')}><Check size={17}/>{busy ? 'Guardando…' : 'Confirmar cambios'}</button></div></>}
       {modal.type === 'close-register' && <div className="modal-actions"><button className="button secondary" disabled={busy} onClick={() => setModal(null)}>Cancelar</button><button className="button close-register-button" disabled={busy} onClick={() => run(() => closeRegister(modal.item), 'Cajas cerradas')}><Check size={17}/>{busy ? 'Cerrando…' : 'Aceptar'}</button></div>}

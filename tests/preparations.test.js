@@ -38,14 +38,14 @@ test('recetas y preparaciones completan el ciclo sin modificar existencias al co
   const before = structuredClone(state);
   await assert.rejects(store.savePrepared('recipe', 800, batch.id), /insuficientes/);
   assert.deepEqual(state, before);
-  await assert.rejects(store.saveProduct({name: 'Changed', quantity: 100}, batch.id), /Preparar bebidas/);
+  await store.saveProduct({name: 'Cóctel', quantity: 8}, batch.id);
   await store.removeItem('recipes', 'recipe');
   assert.ok(state.products.some(p => p.id === batch.id));
   await store.removeItem('products', batch.id);
-  assert.equal(state.products.find(p => p.id === 'ron').quantity, 10);
-  assert.equal(state.products.find(p => p.id === 'cola').quantity, 20);
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 8);
+  assert.equal(state.products.find(p => p.id === 'cola').quantity, 17);
   await store.removeItem('products', batch.id);
-  assert.equal(state.products.find(p => p.id === 'ron').quantity, 10);
+  assert.equal(state.products.find(p => p.id === 'ron').quantity, 8);
   stop();
 });
 
@@ -116,5 +116,38 @@ test('foto integrada persiste, se conserva al editar y se reemplaza o elimina co
   assert.equal(state.offers.length, 0);
   assert.equal(localStorage.getItem('plan-b-pos-v1').includes(first), false);
   stopReload();
+  stop();
+});
+
+ test('tandas de la misma tarjeta suman stock, conservan ventas y permiten corregir existencias', async () => {
+  storage.clear();
+  let state;
+  const stop = store.subscribe(value => {state = value;}, error => {throw error;});
+  await store.saveProduct({name: 'Singani', quantity: 10}, 'singani');
+  const recipe = {name: 'Jarra Victoria', quantity: 3, ingredients: [{productId: 'singani', quantity: 1}]};
+  await store.saveRecipe(recipe, 'victoria');
+  await store.savePrepared('victoria', 3);
+  const id = state.products.find(p => p.prepared).id;
+  await store.saveOffer([id], 1000, 'jarra');
+  await store.recordSale('jarra', 1000, 0);
+  await store.savePrepared('victoria', 6);
+  assert.equal(state.products.filter(p => p.prepared).length, 1);
+  assert.equal(state.products.find(p => p.id === id).quantity, 8);
+  assert.equal(state.products.find(p => p.id === id).preparedQuantity, 9);
+  assert.equal(state.products.find(p => p.id === 'singani').quantity, 7);
+  // A correction is available stock, independent of previously used units.
+  await store.saveProduct({name: 'Jarra Victoria', quantity: 0}, id);
+  assert.equal(state.products.find(p => p.id === 'singani').quantity, 7);
+  await store.savePrepared('victoria', 3);
+  assert.equal(state.products.find(p => p.id === id).quantity, 3);
+  // Changing the recipe affects only the next batch's consumption.
+  await store.saveRecipe({...recipe, id: 'victoria', ingredients: [{productId: 'singani', quantity: 2}]}, 'victoria');
+  await store.savePrepared('victoria', 3);
+  assert.equal(state.products.filter(p => p.prepared).length, 1);
+  assert.equal(state.products.find(p => p.id === id).quantity, 6);
+  assert.equal(state.products.find(p => p.id === 'singani').quantity, 4);
+  const before = structuredClone(state);
+  await assert.rejects(store.savePrepared('victoria', 300), /insuficientes/);
+  assert.deepEqual(state, before);
   stop();
 });

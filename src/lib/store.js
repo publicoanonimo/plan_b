@@ -1,5 +1,5 @@
-import { collection, doc, onSnapshot, query, where, setDoc, runTransaction, writeBatch } from 'firebase/firestore';
-import { prepareSale, prepareCashEntry, prepareRecipe, preparationPlan, preparationRefund, validateProduct, offerQuantity, CASH_ENTRY_ID } from './domain.js';
+import { collection, doc, onSnapshot, query, where, getDocs, setDoc, runTransaction, writeBatch } from 'firebase/firestore';
+import { prepareSale, prepareCashEntry, prepareRecipe, preparationPlan, appendPreparationPlan, validateProduct, offerQuantity, CASH_ENTRY_ID } from './domain.js';
 import { db } from './firebase.js';
 import { validateOfferPhoto } from './offerPhoto.js';
 export { cloudEnabled } from './firebase.js';
@@ -86,10 +86,9 @@ export async function saveProduct(data, id = crypto.randomUUID()) {
   const product = {id, kind: 'inventory', name: data.name.trim(), quantity: Number(data.quantity)};
   if (db) await runTransaction(db, async transaction => {
     const existing = await transaction.get(doc(db, 'posProducts', id));
-    if (existing.data()?.prepared) throw new Error('Edita la cantidad desde Preparar bebidas.');
-    transaction.set(doc(db, 'posProducts', id), product, {merge: true});
+    transaction.set(doc(db, 'posProducts', id), {...existing.data(), ...product});
   });
-  else await mutateLocal(state => {const existing = state.products.find(p => p.id === id); if (existing?.prepared) throw new Error('Edita la cantidad desde Preparar bebidas.'); state.products = existing ? state.products.map(p => p.id === id ? {...p, ...product} : p) : [...state.products, product];});
+  else await mutateLocal(state => {const existing = state.products.find(p => p.id === id); state.products = existing ? state.products.map(p => p.id === id ? {...p, ...product} : p) : [...state.products, product];});
 }
 export async function saveRecipe(data, id = crypto.randomUUID()) {
   if (db) await runTransaction(db, async transaction => {
@@ -97,36 +96,46 @@ export async function saveRecipe(data, id = crypto.randomUUID()) {
     if (data.id && (!existing.exists() || existing.data().kind !== 'recipe')) throw new Error('La tarjeta ya no existe.');
     const snapshots = await Promise.all((data.ingredients || []).map(item => transaction.get(doc(db, 'posProducts', item.productId))));
     const products = snapshots.filter(s => s.exists()).map(s => ({...s.data(), id: s.id}));
-    transaction.set(doc(db, 'posProducts', id), {...prepareRecipe(data, products), id});
+    transaction.set(doc(db, 'posProducts', id), {...prepareRecipe(data, products), id, ...(existing.data()?.preparedProductId ? {preparedProductId: existing.data().preparedProductId} : {})});
   });
   else await mutateLocal(state => {
     if (data.id && !state.recipes.some(recipe => recipe.id === id)) throw new Error('La tarjeta ya no existe.');
-    const recipe = {...prepareRecipe(data, state.products), id};
+    const previous = state.recipes.find(item => item.id === id);
+    const recipe = {...prepareRecipe(data, state.products), id, ...(previous?.preparedProductId ? {preparedProductId: previous.preparedProductId} : {})};
     state.recipes = [...state.recipes.filter(item => item.id !== id), recipe];
   });
 }
 
 // Both preparation and refunds read the latest stock inside the same transaction.
 export async function savePrepared(sourceId, quantity, batchId = null) {
-  const id = batchId || crypto.randomUUID();
+  const newId = crypto.randomUUID();
+  // Discover products created before cards stored their inventory reference.
+  const legacy = db && !batchId ? (await getDocs(query(collection(db, 'posProducts'), where('recipeId', '==', sourceId)))).docs.filter(item => item.data().prepared).sort((a, b) => a.id.localeCompare(b.id))[0]?.id : null;
   if (db) await runTransaction(db, async transaction => {
     const snapshot = await transaction.get(doc(db, 'posProducts', batchId || sourceId));
     if (!snapshot.exists()) throw new Error('Esta tarjeta o preparación ya no existe.');
     const source = {...snapshot.data(), id: snapshot.id};
     if (batchId ? !source.prepared : source.kind !== 'recipe') throw new Error('La preparación no es válida.');
+    const id = batchId || source.preparedProductId || legacy || newId;
+    const existing = batchId ? source : (await transaction.get(doc(db, 'posProducts', id))).data();
+    if (existing && (!existing.prepared || existing.recipeId !== sourceId) && !batchId) throw new Error('El producto asociado a la tarjeta no es válido.');
     const snapshots = await Promise.all(source.ingredients.map(item => transaction.get(doc(db, 'posProducts', item.productId))));
     const products = snapshots.filter(s => s.exists()).map(s => ({...s.data(), id: s.id}));
-    const plan = preparationPlan(source, quantity, products, batchId ? source : null);
+    const plan = batchId ? preparationPlan(source, quantity, products, source) : appendPreparationPlan(source, quantity, products, existing);
     plan.updates.forEach(product => transaction.set(doc(db, 'posProducts', product.id), product));
     transaction.set(doc(db, 'posProducts', id), {...plan.product, id});
+    if (!batchId) transaction.set(doc(db, 'posProducts', sourceId), {...source, preparedProductId: id});
   });
   else await mutateLocal(state => {
     const source = batchId ? state.products.find(p => p.id === batchId && p.prepared) : state.recipes.find(p => p.id === sourceId);
     if (!source) throw new Error('Esta tarjeta o preparación ya no existe.');
-    const plan = preparationPlan(source, quantity, state.products, batchId ? source : null);
+    const existing = batchId ? source : state.products.find(p => p.prepared && p.recipeId === sourceId && p.id === source.preparedProductId) || state.products.filter(p => p.prepared && p.recipeId === sourceId).sort((a, b) => a.id.localeCompare(b.id))[0];
+    const id = batchId || existing?.id || source.preparedProductId || newId;
+    const plan = batchId ? preparationPlan(source, quantity, state.products, source) : appendPreparationPlan(source, quantity, state.products, existing);
     const replacements = new Map(plan.updates.map(product => [product.id, product]));
     replacements.set(id, {...plan.product, id});
     state.products = [...state.products.filter(p => !replacements.has(p.id)), ...replacements.values()];
+    if (!batchId) state.recipes = state.recipes.map(recipe => recipe.id === sourceId ? {...recipe, preparedProductId: id} : recipe);
   });
 }
 export async function saveOffer(productIds, priceCents, id = crypto.randomUUID(), productQuantities = {}, photo) {
@@ -167,21 +176,9 @@ export async function removeItem(kind, id) {
   if (db) await runTransaction(db, async transaction => {
     const snapshot = await transaction.get(doc(db, 'posProducts', id));
     if (!snapshot.exists()) return;
-    const item = snapshot.data();
-    if (item.prepared) {
-      const snapshots = await Promise.all(item.ingredients.map(ingredient => transaction.get(doc(db, 'posProducts', ingredient.productId))));
-      const products = snapshots.filter(s => s.exists()).map(s => ({...s.data(), id: s.id}));
-      preparationRefund(item, products).forEach(product => transaction.set(doc(db, 'posProducts', product.id), product));
-    }
     transaction.delete(doc(db, 'posProducts', id));
   });
   else await mutateLocal(state => {
-    const item = state[kind].find(p => p.id === id);
-    if (item?.prepared) {
-      const refunds = preparationRefund(item, state.products);
-      const ids = new Set(refunds.map(p => p.id));
-      state.products = [...state.products.filter(p => !ids.has(p.id)), ...refunds];
-    }
     state[kind] = state[kind].filter(p => p.id !== id);
   });
 }

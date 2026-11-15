@@ -1,7 +1,8 @@
 import { UserRound, Pencil, Trash2 } from 'lucide-react';
-import {ROLES, userRole, isAdministrator} from '../lib/roles.js';
+import {ROLES, userRole, isAdministrator, visibleUsers} from '../lib/roles.js';
 
 export default function UsersModule({storage, users, currentUser, busy, onEdit, onDelete}) {
+  users = visibleUsers(users);
   return <><div className="users-storage-status"><span className="stock-badge"><span/>{storage === 'local' ? 'Este navegador' : 'Guardado en Firebase'}</span></div>
     <section className="inventory-list users-list panel" aria-label="Usuarios de acceso">
     <div className="inventory-list-heading users-list-heading" aria-hidden="true"><span>Nombre</span><span>Usuario</span><span>Acciones</span></div>

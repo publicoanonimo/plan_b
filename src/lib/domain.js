@@ -54,6 +54,21 @@ export function preparationPlan(source, quantity, products, previous = null) {
   return {product, updates};
 }
 
+// Each preparation consumes only its own ingredients, then adds to available stock.
+export function appendPreparationPlan(source, quantity, products, previous = null) {
+  const plan = preparationPlan(source, quantity, products);
+  if (!previous) return plan;
+  const ingredients = new Map((previous.ingredients || []).map(item => [item.productId, {...item}]));
+  for (const item of plan.product.ingredients) {
+    const before = ingredients.get(item.productId);
+    ingredients.set(item.productId, {...item, quantity: (before?.quantity || 0) + item.quantity});
+  }
+  const available = previous.quantity + plan.product.quantity;
+  const preparedQuantity = previous.preparedQuantity + plan.product.preparedQuantity;
+  if (![available, preparedQuantity, ...[...ingredients.values()].map(item => item.quantity)].every(Number.isSafeInteger) || available > 1000000000) throw new Error('La cantidad calculada supera el límite permitido.');
+  return {...plan, product: {...plan.product, quantity: available, preparedQuantity, ingredients: [...ingredients.values()]}};
+}
+
 function ingredientUpdates(next, previous, products) {
   const ids = new Set([...next, ...previous].map(item => item.productId));
   return [...ids].map(id => {

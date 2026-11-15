@@ -185,6 +185,7 @@ tbody tr+tr { border-top: 1px solid #9d4edd12; }
 .card-options:hover,.sale-card .card-options:hover { background: #351542; }
 .sold-out,.inventory-row.sold-out { border-color: #ff668e; background: #331121; }
 .inventory-actions .icon-button { color: var(--cyan); border-color: #00f0ff33; background: #00f0ff0a; border-radius: 5px; }
+.inventory-actions .inventory-prepare { color: #241b00; border-color: #ffe15a; background: #ffe15a; }
 .inventory-actions .inventory-delete { color: #ff9ab5; border-color: #ff668e40; background: #ff668e0d; }
 .inventory-product h3 { color: #f7edff; }
 .recipe-trigger h3 { color: var(--cyan); font-size: 27px; }

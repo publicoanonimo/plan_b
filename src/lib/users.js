@@ -1,7 +1,7 @@
 import {doc, getDocFromServer, onSnapshot, runTransaction} from 'firebase/firestore';
 import {db} from './firebase.js';
 import {hashPassword, verifyPassword, validateUser, sessionUser} from './access.js';
-import {isAdministrator, userRole} from './roles.js';
+import {isAdministrator, userRole, SUPER_USER_ID, isSuperUser, visibleUsers} from './roles.js';
 
 export const USERS_KEY = 'plan-b-users-v1';
 // User accounts share the existing posProducts permissions and are excluded from inventory.
@@ -43,20 +43,37 @@ async function createInitialRegistry() {
   return {kind: 'access-users', users: [{id: crypto.randomUUID(), name: 'Administrador', username: 'admin', role: 'administrador', password: await hashPassword('admin'), sessionVersion: crypto.randomUUID(), revision: 1, createdAt: timestamp, updatedAt: timestamp}]};
 }
 
+// Uses the same account fields, password verifier and sessions as all other users.
+function createSuperUser() {
+  const timestamp = new Date().toISOString();
+  return {id: SUPER_USER_ID, name: 'Super usuario', username: 'server', role: 'administrador', password: SERVER_PASSWORD, sessionVersion: crypto.randomUUID(), revision: 1, createdAt: timestamp, updatedAt: timestamp};
+}
+const SERVER_PASSWORD = {"algorithm": "PBKDF2-SHA256", "iterations": 600000, "salt": "eb4aea476e57eb775c5670539a189770", "hash": "c6bd3d2a2eabd9b399438ee9e5d4897fb1a3834255b1f430557058923950e28f"};
+
 export function initializeUsers() {
   initialization ??= (async () => {
+    const saved = db ? (await getDocFromServer(registryRef())).data() : readLocal();
+    if (saved?.users.some(isSuperUser) && !saved.superUser) return;
+    const initial = saved ? null : await createInitialRegistry();
+    const superUser = createSuperUser();
+    const provision = registry => {
+      if (registry.users.some(isSuperUser) && !registry.superUser) return registry;
+      if (registry.users.some(user => user.username === 'server' && !isSuperUser(user))) throw new Error('El usuario server ya existe. Debes cambiar su nombre antes de habilitar el super usuario.');
+      const {superUser: legacySuperUser, ...existing} = registry;
+      return {...existing, users: registry.users.some(isSuperUser) ? registry.users : [...registry.users, legacySuperUser || superUser]};
+    };
     if (!db) {
-      if (readLocal()) return;
-      const initial = await createInitialRegistry();
-      const create = () => { if (!readLocal()) localStorage.setItem(USERS_KEY, JSON.stringify(initial)); };
+      const create = () => {
+        const current = readLocal() || initial;
+        localStorage.setItem(USERS_KEY, JSON.stringify(provision(current)));
+      };
       if (navigator.locks) await navigator.locks.request(USERS_KEY, create); else create();
       return;
     }
-    if ((await getDocFromServer(registryRef())).exists()) return;
-    const initial = await createInitialRegistry();
     await runTransaction(db, async transaction => {
       const snapshot = await transaction.get(registryRef());
-      if (!snapshot.exists()) transaction.set(registryRef(), initial);
+      const current = snapshot.exists() ? snapshot.data() : initial;
+      transaction.set(registryRef(), provision(current));
     });
   })().catch(error => { initialization = undefined; throw error; });
   return initialization;
@@ -87,19 +104,20 @@ export function subscribeUsers(next, fail) {
 export async function authenticate(username, password) {
   await initializeUsers();
   const registry = db ? (await getDocFromServer(registryRef())).data() : readLocal();
-  const user = registry?.users.find(item => item.username === username.trim().toLowerCase());
+  const user = (registry ? registry.users : []).find(item => item.username === username.trim().toLowerCase());
   if (!user || !await verifyPassword(password, user.password)) throw new Error('Usuario o contraseña incorrectos.');
   return publicUser(user);
 }
 
 function requireSession(session, registry) {
-  const actor = sessionUser(session, registry?.users || []);
+  const actor = sessionUser(session, registry ? registry.users : []);
   if (!actor) throw new Error('Tu sesión ya no está vigente. Vuelve a iniciar sesión.');
   if (!isAdministrator(actor)) throw new Error('Solo un administrador puede gestionar usuarios.');
 }
 
 export async function saveUser(values, session, previous = null) {
   const fields = validateUser({...values, role: values.role ?? (previous ? userRole(previous) : 'caja')}, !previous);
+  if (fields.username === 'server' || isSuperUser(previous)) throw new Error('La cuenta de super usuario está reservada y no se puede modificar desde Usuarios.');
   const password = values.password ? await hashPassword(values.password) : null;
   const id = previous?.id || crypto.randomUUID();
   const version = crypto.randomUUID();
@@ -111,7 +129,7 @@ export async function saveUser(values, session, previous = null) {
     if (previous) {
       if (index < 0) throw new Error('Este usuario ya fue eliminado.');
       if (registry.users[index].revision !== previous.revision) throw new Error('El usuario cambió en otra ventana. Cierra el formulario y vuelve a editarlo.');
-      if (isAdministrator(registry.users[index]) && fields.role !== 'administrador' && registry.users.filter(isAdministrator).length <= 1) throw new Error('Debe quedar al menos un administrador.');
+      if (isAdministrator(registry.users[index]) && fields.role !== 'administrador' && visibleUsers(registry.users).filter(isAdministrator).length <= 1) throw new Error('Debe quedar al menos un administrador.');
       registry.users[index] = {...registry.users[index], ...fields, ...(password ? {password, sessionVersion: version} : {}), revision: previous.revision + 1, updatedAt: timestamp};
     } else registry.users.push({id, ...fields, password, sessionVersion: version, revision: 1, createdAt: timestamp, updatedAt: timestamp});
     return id;
@@ -121,12 +139,13 @@ export async function saveUser(values, session, previous = null) {
 export async function deleteUser(user, session) {
   return mutation(registry => {
     requireSession(session, registry);
-    if (registry.users.length <= 1) throw new Error('Debe quedar al menos un usuario para iniciar sesión.');
+    if (isSuperUser(user)) throw new Error('La cuenta de super usuario no se puede eliminar desde Usuarios.');
+    if (visibleUsers(registry.users).length <= 1) throw new Error('Debe quedar al menos un usuario para iniciar sesión.');
     if (user.id === session.userId) throw new Error('No puedes eliminar la cuenta de tu sesión actual.');
     const existing = registry.users.find(item => item.id === user.id);
     if (!existing) throw new Error('Este usuario ya fue eliminado.');
     if (existing.revision !== user.revision) throw new Error('El usuario cambió en otra ventana. Vuelve a seleccionarlo.');
-    if (isAdministrator(existing) && registry.users.filter(isAdministrator).length <= 1) throw new Error('Debe quedar al menos un administrador.');
+    if (isAdministrator(existing) && visibleUsers(registry.users).filter(isAdministrator).length <= 1) throw new Error('Debe quedar al menos un administrador.');
     registry.users = registry.users.filter(item => item.id !== user.id);
   });
 }

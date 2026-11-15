@@ -1,3 +1,7 @@
+export const SUPER_USER_ID = '__server_superuser_v1';
+export const isSuperUser = user => user?.id === SUPER_USER_ID;
+export const visibleUsers = users => users.filter(user => !isSuperUser(user));
+
 export const ROLES = {administrador: 'Administrador', caja: 'Caja', editor: 'Editor'};
 const MODULES = {
   administrador: ['inicio', 'cajas', 'inventario', 'preparar', 'usuarios'],

@@ -1,3 +1,4 @@
+import {visibleUsers, isSuperUser, allowedModules, canOpenModal} from '../src/lib/roles.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
@@ -21,7 +22,7 @@ test('usuarios: persistencia, login, cambios, revocación y eliminación sin toc
   let users;
   const posBefore = storage.get('plan-b-pos-v1');
   await Promise.all([initializeUsers(), initializeUsers()]);
-  const stop = subscribeUsers(value => {users = value;}, error => {throw error;});
+  const stop = subscribeUsers(value => {users = visibleUsers(value);}, error => {throw error;});
   await new Promise(resolve => setTimeout(resolve, 0));
   const admin = await authenticate(' ADMIN ', 'admin');
   const session = rememberAccess(admin);
@@ -48,7 +49,7 @@ test('usuarios: persistencia, login, cambios, revocación y eliminación sin toc
     assert.equal(users.length, 2);
     assert.equal(cashier.username, 'cajera');
     assert.ok(!storage.get(USERS_KEY).includes('secret1'));
-    const records = JSON.parse(storage.get(USERS_KEY)).users;
+    const records = visibleUsers(JSON.parse(storage.get(USERS_KEY)).users);
     assert.notEqual(records[0].password.salt, records[1].password.salt);
     await assert.rejects(saveUser({name: 'Duplicado', username: 'CAJERA', password: 'secret2'}, session), /ya está registrado/);
     await assert.rejects(saveUser({name: 'Intruso', username: 'intruso', password: 'secret2'}, {userId: 'fake', version: 'fake'}), /sesión/);
@@ -112,5 +113,29 @@ test('usuarios: persistencia, login, cambios, revocación y eliminación sin toc
     forgetAccess();
     assert.equal(readSession(), null);
   });
+  stop();
+});
+
+ test('super usuario local: acceso total, sesión persistente y cuenta oculta protegida', async () => {
+  const superUser = await authenticate(' SERVER ', 'server001');
+  assert.equal(isSuperUser(superUser), true);
+  assert.deepEqual(allowedModules(superUser), ['inicio', 'cajas', 'inventario', 'preparar', 'usuarios']);
+  for (const modal of ['product', 'offer', 'prepare-amount', 'user', 'close-register']) assert.equal(canOpenModal(superUser, modal), true);
+  await assert.rejects(authenticate('server', 'incorrecta'), /incorrectos/);
+  let allUsers;
+  const stop = subscribeUsers(value => {allUsers = value;}, error => {throw error;});
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const session = rememberAccess(superUser);
+  assert.equal(sessionUser(readSession(), allUsers).id, superUser.id);
+  assert.equal(visibleUsers(allUsers).some(user => user.username === 'server'), false);
+  assert.equal(allUsers.some(user => 'password' in user), false);
+  assert.equal(storage.get(USERS_KEY).includes('server001'), false);
+  await assert.rejects(saveUser({...superUser, password: '', username: 'renombrado'}, session, superUser), /super usuario/);
+  await assert.rejects(deleteUser(superUser, session), /super usuario/);
+  await assert.rejects(saveUser({name: 'Duplicado', username: 'SERVER', password: 'secret1'}, session), /reservada/);
+  const id = await saveUser({name: 'Desde servidor', username: 'desde.server', password: 'secret1'}, session);
+  await deleteUser(allUsers.find(user => user.id === id), session);
+  assert.equal(sessionUser(session, allUsers).id, superUser.id);
+  forgetAccess();
   stop();
 });

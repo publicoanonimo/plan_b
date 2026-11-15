@@ -77,6 +77,9 @@ export async function runTransaction(_db, change) {
   }
   throw new Error('Too much contention.');
 }
+export async function getDocs(reference) {
+  return {docs: [...documents].filter(([path, value]) => path.startsWith(reference.path + '/') && (!reference.filter || value[reference.filter.field] === reference.filter.value)).map(([path]) => snapshot(path))};
+}
 export async function setDoc(reference, data) {put(reference.path, data); emit();}
 export function writeBatch() {
   const paths = [];

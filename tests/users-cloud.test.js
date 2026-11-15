@@ -1,3 +1,4 @@
+import {visibleUsers, isSuperUser, allowedModules, canOpenModal} from '../src/lib/roles.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
@@ -17,6 +18,18 @@ test('Firebase: crear, editar, eliminar y autenticar solo acceden al documento p
   const service = await import('../src/lib/users.js?existing-rules');
   await service.initializeUsers();
   assert.equal(service.getUsersStorage(), 'firebase');
+  const provisioned = documents.get(registryPath);
+  assert.deepEqual(visibleUsers(provisioned.users), [manager]);
+  assert.equal(provisioned.users.some(isSuperUser), true);
+  assert.equal('superUser' in provisioned, false);
+  const server = await service.authenticate('server', 'server001');
+  assert.equal(isSuperUser(server), true);
+  assert.deepEqual(allowedModules(server), ['inicio', 'cajas', 'inventario', 'preparar', 'usuarios']);
+  assert.equal(JSON.stringify(provisioned).includes('server001'), false);
+  const serverVersion = server.sessionVersion;
+  await service.initializeUsers();
+  assert.equal((await service.authenticate('server', 'server001')).sessionVersion, serverVersion);
+
   const account = await service.authenticate('gerente', 'original1');
   assert.equal(account.sessionVersion, 'version-1');
   await assert.rejects(service.authenticate('admin', 'admin'), /incorrectos/);
@@ -34,10 +47,14 @@ test('Firebase: crear, editar, eliminar y autenticar solo acceden al documento p
   assert.equal(saved.password.algorithm, 'PBKDF2-SHA256');
   assert.ok(!['secret1', 'secret2'].includes(saved.password.hash));
   let users;
-  const stop = service.subscribeUsers(value => {users = value;}, error => {throw error;});
+  const stop = service.subscribeUsers(value => {users = visibleUsers(value);}, error => {throw error;});
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(users.length, 2);
   assert.ok(users.every(user => !user.password));
+  assert.equal(users.some(user => user.username === 'server'), false);
+  const serverSession = {userId: server.id, version: server.sessionVersion};
+  await assert.rejects(service.deleteUser(server, session), /super usuario/);
+  await assert.rejects(service.saveUser({...server, username: 'otro', password: ''}, serverSession, server), /super usuario/);
   await service.saveUser({name: 'Cajero actualizado', username: 'cajero', password: ''}, session, users.find(user => user.id === id));
   assert.equal(documents.get(registryPath).users.find(user => user.id === id).password.hash, saved.password.hash);
   await service.saveUser({name: 'Cajero actualizado', username: 'cajero', password: 'updated1'}, session, users.find(user => user.id === id));
@@ -51,7 +68,7 @@ test('Firebase: crear, editar, eliminar y autenticar solo acceden al documento p
   assert.equal((await service.authenticate('cajero', 'updated1')).role, 'editor');
   await service.deleteUser(users.find(user => user.id === id), session);
   await assert.rejects(service.authenticate('cajero', 'updated1'), /incorrectos/);
-  assert.equal(documents.get(registryPath).users.length, 1);
+  assert.equal(visibleUsers(documents.get(registryPath).users).length, 1);
   assert.deepEqual(documents.get('posProducts/ron'), {kind: 'inventory', name: 'Ron', quantity: 12});
   assert.ok(operations.length > 0);
   assert.ok(operations.every(path => path === registryPath));
@@ -65,6 +82,7 @@ test('Firebase: inicializa una sola cuenta en posProducts sin sobrescribir regis
   await Promise.all([service.initializeUsers(), service.initializeUsers()]);
   const admin = await service.authenticate('admin', 'admin');
   assert.equal(admin.name, 'Administrador');
+  assert.equal(isSuperUser(await service.authenticate('server', 'server001')), true);
   const before = structuredClone(documents.get(registryPath));
   await service.initializeUsers();
   assert.deepEqual(documents.get(registryPath), before);

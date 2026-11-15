@@ -143,3 +143,55 @@ test('actualizaciones incrementales conservan tarjetas/fotos y no reprocesan doc
   put('posSales/new'); emit();
   assert.equal(state.sales.length, 0);
 });
+
+ test('preparados: tandas simultáneas suman al mismo producto y descuentan ingredientes una vez', async () => {
+  reset();
+  put('posProducts/ron', {kind: 'inventory', name: 'Ron', quantity: 10});
+  put('posProducts/recipe', {kind: 'recipe', name: 'Jarras', quantity: 3, ingredients: [{productId: 'ron', name: 'Ron', quantity: 1}]});
+  await Promise.all([store.savePrepared('recipe', 3), store.savePrepared('recipe', 6)]);
+  let batches = [...documents.values()].filter(p => p.prepared);
+  assert.equal(batches.length, 1);
+  assert.equal(batches[0].quantity, 9);
+  assert.equal(documents.get('posProducts/ron').quantity, 7);
+  const id = batches[0].id;
+  await store.saveProduct({name: 'Jarras', quantity: 0}, id);
+  assert.equal(documents.get('posProducts/ron').quantity, 7);
+  await store.saveRecipe({id: 'recipe', name: 'Jarras', quantity: 3, ingredients: [{productId: 'ron', quantity: 2}]}, 'recipe');
+  await store.savePrepared('recipe', 3);
+  assert.equal(documents.get('posProducts/' + id).quantity, 3);
+  assert.equal(documents.get('posProducts/ron').quantity, 5);
+  batches = [...documents.values()].filter(p => p.prepared);
+  assert.equal(batches.length, 1);
+  const before = structuredClone([...documents]);
+  controls.commitError = new Error('fallo de guardado');
+  await assert.rejects(store.savePrepared('recipe', 3), /fallo de guardado/);
+  assert.deepEqual([...documents], before);
+});
+
+test('preparados anteriores conservan el identificador usado por las tarjetas de venta', async () => {
+  reset();
+  put('posProducts/ron', {kind: 'inventory', name: 'Ron', quantity: 10});
+  put('posProducts/recipe', {kind: 'recipe', name: 'Jarras', quantity: 3, ingredients: [{productId: 'ron', name: 'Ron', quantity: 1}]});
+  put('posProducts/legacy', {id: 'legacy', kind: 'inventory', name: 'Jarras', quantity: 0, prepared: true, recipeId: 'recipe', preparedQuantity: 9, ingredients: [{productId: 'ron', name: 'Ron', quantity: 3}]});
+  await store.savePrepared('recipe', 6);
+  assert.equal([...documents.values()].filter(p => p.prepared).length, 1);
+  assert.equal(documents.get('posProducts/legacy').quantity, 6);
+  assert.equal(documents.get('posProducts/legacy').preparedQuantity, 15);
+  assert.equal(documents.get('posProducts/ron').quantity, 8);
+});
+
+ test('eliminar un preparado solo borra ese producto sin devolver ingredientes ni borrar su tarjeta', async () => {
+  reset();
+  put('posProducts/ron', {kind: 'inventory', name: 'Ron', quantity: 8});
+  put('posProducts/recipe', {kind: 'recipe', name: 'Jarras', quantity: 3, preparedProductId: 'batch', ingredients: [{productId: 'ron', name: 'Ron', quantity: 1}]});
+  put('posProducts/batch', {id: 'batch', kind: 'inventory', name: 'Jarras', prepared: true, recipeId: 'recipe', quantity: 6, preparedQuantity: 6, ingredients: [{productId: 'ron', name: 'Ron', quantity: 2}]});
+  await store.removeItem('products', 'batch');
+  assert.equal(documents.has('posProducts/batch'), false);
+  assert.equal(documents.get('posProducts/ron').quantity, 8);
+  assert.equal(documents.has('posProducts/recipe'), true);
+  assert.deepEqual(trace.filter(event => event.type === 'read-start').map(event => event.path), ['posProducts/batch']);
+  // The card can create stock again without restoring previously consumed ingredients.
+  await store.savePrepared('recipe', 3);
+  assert.equal(documents.get('posProducts/batch').quantity, 3);
+  assert.equal(documents.get('posProducts/ron').quantity, 7);
+});

@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { money, totals, saleTime, registerSales, cashEntryTotal } from './domain.js';
+import {userSalesSummary} from './userSales.js';
 
 const colors = {
   background: [11, 6, 20], card: [18, 11, 31], strip: [8, 4, 15],
@@ -20,7 +21,7 @@ async function loadReportFont() {
   return fontPromise;
 }
 
-export function createReport(sales, fontData) {
+export function createReport(sales, fontData, users = []) {
   sales = registerSales(sales);
   const pdf = new jsPDF({format: 'a4', unit: 'mm', putOnlyUsedFonts: true});
   const font = fontData ? 'Anton' : 'helvetica';
@@ -92,23 +93,70 @@ export function createReport(sales, fontData) {
     while (pdf.getTextWidth(value) > width - 8 && pdf.getFontSize() > 7) pdf.setFontSize(pdf.getFontSize() - .5);
     pdf.text(value, x + width / 2, 81, {align: 'center'});
   });
+  const rank = userSalesSummary(users, sales);
+  let y = 104;
+  const rankHeading = () => {
+    setText(colors.pink, 15);
+    pdf.text('RANK DE VENTAS', 14, y);
+    y += 12;
+  };
+  const nextPage = () => {pdf.addPage(); page(); y = 48;};
+  rankHeading();
+  for (const user of rank.rows) {
+    setText(colors.text, 10);
+    const name = pdf.splitTextToSize(user.name, 42);
+    const rowHeight = Math.max(14, name.length * 5 + 5);
+    if (y + rowHeight > 270) {nextPage(); rankHeading();}
+    const center = y + rowHeight / 2;
+    setText(colors.text, 10);
+    pdf.text(name, 14, y + 5);
+    pdf.setFillColor(...colors.alternate);
+    pdf.roundedRect(60, center - 3, 99, 6, 3, 3, 'F');
+    const accent = user.hue <= 60
+      ? [255, Math.round(51 + user.hue / 60 * 204), 51]
+      : [Math.round(255 - (user.hue - 60) / 60 * 204), 255, 51];
+    pdf.setFillColor(...accent);
+    const width = 99 * user.percent / 100;
+    if (width >= 6) pdf.roundedRect(60, center - 3, width, 6, 3, 3, 'F');
+    else pdf.rect(60, center - 3, Math.max(.6, width), 6, 'F');
+    setText(accent, 11);
+    const value = `Bs ${money(user.totalCents)}`;
+    while (pdf.getTextWidth(value) > 32 && pdf.getFontSize() > 6) pdf.setFontSize(pdf.getFontSize() - .5);
+    pdf.text(value, 196, center + 1.5, {align: 'right'});
+    y += rowHeight;
+  }
+  if (!rank.rows.length) {
+    setText(colors.muted, 10);
+    pdf.text('Sin usuarios registrados', 14, y);
+    y += 10;
+  }
+  if (rank.unassignedCents > 0) {
+    if (y + 18 > 270) nextPage();
+    setText(colors.muted, 8);
+    const note = pdf.splitTextToSize(`Ventas anteriores sin usuario registrado: Bs ${money(rank.unassignedCents)}. No se incluyen en las barras.`, 182);
+    pdf.text(note, 14, y + 5);
+    y += note.length * 4 + 8;
+  }
+  y += 12;
+  if (y > 242) nextPage();
   setText(colors.pink, 15);
-  pdf.text('VENTAS', 14, 104);
+  pdf.text('VENTAS', 14, y);
   setText(colors.muted, 8);
-  pdf.text('Montos en bolivianos (Bs)', 196, 104, {align: 'right'});
+  pdf.text('Montos en bolivianos (Bs)', 196, y, {align: 'right'});
   autoTable(pdf, {
-    startY: 111,
-    head: [['Producto / combinación', 'Monto (Bs)', 'Pago', 'QR (Bs)', 'Efectivo (Bs)', 'Hora']],
-    body: sales.map(sale => [sale.name, money(sale.totalCents), sale.payment, money(sale.qrCents), money(sale.cashCents), saleTime(sale)]),
+    startY: y + 7,
+    head: [['Producto / combinación', 'Monto (Bs)', 'Pago', 'QR (Bs)', 'Efectivo (Bs)', 'Usuario', 'Hora']],
+    body: sales.map(sale => [sale.name, money(sale.totalCents), sale.payment, money(sale.qrCents), money(sale.cashCents), sale.kind === 'cash-entry' ? '—' : sale.userName || 'Sin registro', saleTime(sale)]),
     theme: 'plain',
     styles: {font, fontStyle: 'normal', fontSize: 9, cellPadding: 3.5, overflow: 'linebreak', lineWidth: 0, valign: 'middle', minCellHeight: 12},
     headStyles: {fillColor: colors.strip, textColor: colors.muted, fontStyle: 'normal', fontSize: 8},
     bodyStyles: {textColor: colors.text, fillColor: colors.card},
     alternateRowStyles: {fillColor: colors.alternate},
     columnStyles: {
-      0: {cellWidth: 61}, 1: {cellWidth: 24, halign: 'right', textColor: colors.cyan},
-      2: {cellWidth: 26}, 3: {cellWidth: 22, halign: 'right'},
-      4: {cellWidth: 25, halign: 'right'}, 5: {cellWidth: 24, halign: 'right', textColor: colors.muted, fontSize: 8},
+      0: {cellWidth: 44}, 1: {cellWidth: 21, halign: 'right', textColor: colors.cyan},
+      2: {cellWidth: 25}, 3: {cellWidth: 18, halign: 'right'},
+      4: {cellWidth: 21, halign: 'right'}, 5: {cellWidth: 30, textColor: [250, 255, 0]},
+      6: {cellWidth: 23, halign: 'right', textColor: colors.muted, fontSize: 8},
     },
     margin: {top: 43, left: 14, right: 14, bottom: 23},
     rowPageBreak: 'avoid',
@@ -120,7 +168,7 @@ export function createReport(sales, fontData) {
       }
     },
     didDrawCell: data => {
-      if (data.section === 'body' && data.column.index === 5) {
+      if (data.section === 'body' && data.column.index === 6) {
         pdf.setDrawColor(...colors.line);
         pdf.setLineWidth(.15);
         pdf.line(14, data.cell.y + data.cell.height, 196, data.cell.y + data.cell.height);
@@ -129,7 +177,7 @@ export function createReport(sales, fontData) {
   });
   if (!sales.length) {
     setText(colors.muted, 11);
-    pdf.text('Sin ventas registradas', 105, 139, {align: 'center'});
+    pdf.text('Sin ventas registradas', 105, pdf.lastAutoTable.finalY + 12, {align: 'center'});
   }
   const pages = pdf.internal.getNumberOfPages();
   for (let number = 1; number <= pages; number++) {
@@ -142,9 +190,9 @@ export function createReport(sales, fontData) {
   return pdf;
 }
 
-export async function exportReport(sales) {
+export async function exportReport(sales, users = []) {
   const font = await loadReportFont();
-  const pdf = createReport(sales, font);
+  const pdf = createReport(sales, font, users);
   const date = new Date();
   const stamp = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
   pdf.save(`plan-b-caja-${stamp}.pdf`);

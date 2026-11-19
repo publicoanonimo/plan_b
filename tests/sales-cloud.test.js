@@ -20,12 +20,16 @@ const firstReads = () => trace.slice(0, trace.findIndex(event => event.type === 
 
 test('venta: tarjeta y stock se leen en paralelo y se guardan juntos; QR, efectivo y mixto', async () => {
   seed();
-  await store.recordSale('combo', 3500, 0, offer);
+  const user = {id: 'cajero-1', name: 'María', password: 'private'};
+  await store.recordSale('combo', 3500, 0, offer, user);
+  user.name = 'María editada';
   assert.deepEqual(firstReads(), ['posProducts/combo', 'posProducts/ron', 'posProducts/cola']);
   assert.equal(trace.filter(event => event.type === 'read-start').length, 3);
   assert.equal(trace.filter(event => event.type === 'commit').length, 1);
-  await store.recordSale('combo', 0, 3500, offer);
-  await store.recordSale('combo', 1000, 2500, offer);
+  await store.recordSale('combo', 0, 3500, offer, user);
+  await store.recordSale('combo', 1000, 2500, offer, user);
+  assert.deepEqual(sales().map(sale => sale.userName), ['María', 'María editada', 'María editada']);
+  assert.ok(sales().every(sale => sale.userId === 'cajero-1' && !('password' in sale)));
   assert.equal(documents.get('posProducts/ron').quantity, 2);
   assert.equal(documents.get('posProducts/cola').quantity, 2);
   assert.deepEqual(sales().map(sale => sale.payment), ['QR', 'Efectivo', 'QR + Efectivo']);

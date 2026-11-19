@@ -16,8 +16,8 @@ test('reporte incorpora Anton, conserva el pago mixto y normaliza el monto de ca
   assert.equal(pdf.getFont().fontName, 'Anton');
   const rows = pdf.lastAutoTable.body;
   assert.equal(rows.length, 2);
-  assert.deepEqual(rows[0].raw, [sale.name, '35', 'QR + Efectivo', '15', '20', '23:15:08']);
-  assert.deepEqual(rows[1].raw, ['Monto de caja', '50', 'Caja', '0', '0', '21:00:00']);
+  assert.deepEqual(rows[0].raw, [sale.name, '35', 'QR + Efectivo', '15', '20', 'Sin registro', '23:15:08']);
+  assert.deepEqual(rows[1].raw, ['Monto de caja', '50', 'Caja', '0', '0', '—', '21:00:00']);
 });
 
 test('reporte vacío sigue siendo un PDF válido de una página', () => {
@@ -37,4 +37,27 @@ test('reporte extenso conserva las filas y las distribuye sin invadir el pie', (
     assert.ok(cell.y >= 43);
     assert.ok(cell.y + cell.height <= 274.1);
   }
+});
+
+test('PDF incluye rank con usuarios en cero, excluye super usuario y conserva vendedor en cada venta', () => {
+  const users = [{id: 'ana', name: 'Ana'}, {id: 'bruno', name: 'Bruno'}, {id: '__server_superuser_v1', name: 'Super usuario'}];
+  const pdf = createReport([{...sale, userId: 'ana', userName: 'Ana al vender'}, {...sale, id: 'super-sale', userId: '__server_superuser_v1', userName: 'Super usuario'}], undefined, users);
+  const output = pdf.output();
+  assert.ok(output.includes('(RANK DE VENTAS)'));
+  assert.ok(output.includes('(Ana)'));
+  assert.ok(output.includes('(Bruno)'));
+  assert.ok(output.includes('(Bs 0)'));
+  assert.equal(pdf.lastAutoTable.body.length, 2);
+  assert.equal(pdf.lastAutoTable.body[0].raw[5], 'Ana al vender');
+  assert.equal(pdf.lastAutoTable.body[1].raw[5], 'Super usuario');
+});
+
+test('rank extenso pagina antes de la lista sin invadir el pie ni perder usuarios', () => {
+  const users = Array.from({length: 50}, (_, index) => ({id: String(index), name: `Cajero ${index}`}));
+  const pdf = createReport([{...sale, userId: '0', userName: 'Cajero 0'}], undefined, users);
+  assert.ok(pdf.internal.getNumberOfPages() >= 4);
+  const output = pdf.output();
+  for (const user of users) assert.ok(output.includes(`(${user.name})`));
+  assert.equal(pdf.lastAutoTable.body.length, 1);
+  for (const row of pdf.lastAutoTable.body) assert.ok(row.cells[0].y + row.cells[0].height <= 274.1);
 });

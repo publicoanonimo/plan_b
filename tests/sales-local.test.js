@@ -30,7 +30,13 @@ test('modo local reutiliza tarjetas/fotos y conserva snapshots anteriores al reg
   await store.saveProduct({name: 'Cola', quantity: 3}, 'cola');
   await store.saveOffer(['ron'], 3500, 'combo', {}, 'data:image/jpeg;base64,/9j/AAAA');
   const initial = state;
-  await store.recordSale('combo', 3500, 0);
+  const user = {id: 'cajero-1', name: 'María', password: 'private'};
+  await store.recordSale('combo', 3500, 0, null, user);
+  user.name = 'María editada';
+  const savedSale = JSON.parse(storage.get(KEY)).sales[0];
+  assert.equal(savedSale.userId, 'cajero-1');
+  assert.equal(savedSale.userName, 'María');
+  assert.equal('password' in savedSale, false);
   assert.equal(state.offers, initial.offers);
   assert.equal(state.offers[0], initial.offers[0]);
   assert.equal(state.products.find(product => product.id === 'cola'), initial.products.find(product => product.id === 'cola'));

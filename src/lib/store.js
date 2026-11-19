@@ -182,8 +182,9 @@ export async function removeItem(kind, id) {
     state[kind] = state[kind].filter(p => p.id !== id);
   });
 }
-export async function recordSale(offerId, qrCents, cashCents, displayedOffer = null) {
+export async function recordSale(offerId, qrCents, cashCents, displayedOffer = null, currentUser = null) {
   const id = crypto.randomUUID();
+  const seller = currentUser ? {userId: currentUser.id, userName: currentUser.name} : {};
   if (db) {
     await runTransaction(db, async transaction => {
       // Use the displayed IDs only to start independent reads together. The
@@ -205,14 +206,14 @@ export async function recordSale(offerId, qrCents, cashCents, displayedOffer = n
         .filter(s => s.exists() && s.data().kind === 'inventory').map(s => ({...s.data(), id: s.id}));
       const sale = prepareSale(offer, products, qrCents, cashCents);
       products.forEach(p => transaction.update(doc(db, 'posProducts', p.id), {quantity: p.quantity - offerQuantity(offer, p.id)}));
-      transaction.set(doc(db, 'posSales', id), {...sale, id});
+      transaction.set(doc(db, 'posSales', id), {...sale, ...seller, id});
     });
   } else await mutateLocal(state => {
     const offer = state.offers.find(o => o.id === offerId);
     if (!offer) throw new Error('Esta opción de venta ya no existe.');
     const sale = prepareSale(offer, state.products, qrCents, cashCents);
     state.products = state.products.map(p => offer.productIds.includes(p.id) ? {...p, quantity: p.quantity - offerQuantity(offer, p.id)} : p);
-    state.sales = [...state.sales, {...sale, id}];
+    state.sales = [...state.sales, {...sale, ...seller, id}];
   });
 }
 
